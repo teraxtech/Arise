@@ -24,11 +24,10 @@
 			<div id="Button0">
 				<button class="mainButton" id="draw" onclick="setDrawMode()">Draw</button>
 				<div class="dropdown" id="drawMenu">
-					<button class="dropdown-button">Cycle</button>
+					<button class="dropdown-button">1</button>
 					<div class="dropdown-content">
-						<button onclick="changeDrawMode(this);" style="display: none;">Cycle</button>
 						<button onclick="changeDrawMode(this);">0</button>
-						<button onclick="changeDrawMode(this);">1</button>
+						<button onclick="changeDrawMode(this);" style="display: none;">1</button>
 					</div>
 				</div>
 			</div>
@@ -38,13 +37,13 @@
 				<button class="dropdown-button" style="width: 105px;">Other Actions</button>
 				<div class="dropdown-content">
 					<button class="displayIf noSelect"onclick="fitView()">Fit View</button>
-					<button class="displayIf select" onclick="copy()">Copy</button>
-					<button class="displayIf select"  onclick="cut();">Cut</button>
+					<button class="displayIf select" onclick="editArea('copy');">Copy</button>
+					<button class="displayIf select"  onclick="editArea('cut');">Cut</button>
 					<button onclick="paste();render()">Paste</button>
-					<button class="displayIf select"  onclick="randomizeGrid(selectArea);">Randomize</button>
-					<button class="displayIf select"  onclick="clearGrid();">Clear</button>
-					<button class="displayIf select"  onclick="invertGrid();">Invert</button>
-					<button class="displayIf select"  onclick="incrementArea(selectArea);">Increment Area</button>
+					<button class="displayIf select"  onclick="editArea('randomize', selectArea);">Randomize</button>
+					<button class="displayIf select"  onclick="editArea('clear');">Clear</button>
+					<button class="displayIf select"  onclick="editArea('invert');">Invert</button>
+					<button class="displayIf select"  onclick="editArea('increment');">Increment Area</button>
 					<button class="displayIf noArea"onclick="selectAll()">Select All</button>
 					<button class="displayIf select paste"  onclick="setMark()">Set Marker</button>
 					<button class="displayIf paste"  onclick="flipDiag();flipOrtho('horizonal');">Rotate CW</button>
@@ -67,7 +66,7 @@
 				<label for="speed">Simulation speed:</label>
 				<span style="display: inline-block">
 					-
-					<input title="faster to the right" style="width: 190px;vertical-align: top;" type="range" min="1" max="100" value="100" id="speed">
+					<input title="faster to the right" style="width: 190px;vertical-align: top;" type="range" min="1" max="100" value="87" id="speed" onchange="setSimSpeed(this)">
 					+
 				</span>
 			</div>
@@ -103,7 +102,7 @@
 				<input type="checkbox" id="gridLines" onclick="render()" checked>
 				<label for="gridLines">Enable Grid Lines</label>
 				<br>
-				<input type="checkbox" id="antiStrobing" onclick="render()" checked>
+				<input type="checkbox" id="antiStrobing" onclick="setColors()" checked>
 				<label for="antiStrobing">Prevent Strobing in B0 Rules</label>
 				<br>
 				<input type="checkbox" id="debugVisuals" onclick="render()">
@@ -183,13 +182,13 @@
 				<input type="checkbox" id="darkTheme" onclick="setDark()" checked>
 				<label for="darkTheme">Enable Dark</label>
 				<br>
-				<br>Convert INTG rules:
+				<br>Format for exporting INTG rulestrings:
 				<div class="tab">
-					<input type="checkbox" id="BSG" onclick="uncheckSiblings(this)"><label for="BSG">B#/S#/G# format</label>
+					<input type="checkbox" id="BSG" onclick="submitFormat(this)" checked><label for="BSG" checked>B#/S#/G# format</label>
 					<br>
-					<input type="checkbox" id="gbs" onclick="uncheckSiblings(this)"><label for="gbs">g#s#b# format</label>
+					<input type="checkbox" id="gbs" onclick="submitFormat(this)"><label for="gbs">g#s#b# format</label>
 					<br>
-					<input type="checkbox" id="sbg" onclick="uncheckSiblings(this)"><label for="sbg">#/#/# format</label>
+					<input type="checkbox" id="sbg" onclick="submitFormat(this)"><label for="sbg">#/#/# format</label>
 				</div>
 				<br><button class=mainButton onclick="exportSetting()">Export Profile</button>
 				<br>

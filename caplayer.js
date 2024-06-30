@@ -9,28 +9,13 @@ class ListNode {
 	}
 }
 
-class Area {
-	constructor(){
-		this.dimensions = [0,0,0,0];
-		this.isActive = false;
-	}
-	get top() { return this.dimensions[0];}
-	get right() { return this.dimensions[1];}
-	get bottom() { return this.dimensions[2];}
-	get left() { return this.dimensions[3];}
-	set top(n) { this.dimensions[0] = n;}
-	set right(n) { this.dimensions[1] = n;}
-	set bottom(n) { this.dimensions[2] = n;}
-	set left(n) { this.dimensions[3] = n;}
-}
-
 class Pointer {
-	constructor(x, y) {
+	constructor(x, y, id=0) {
 		this.dragX=x;
 		this.dragY=y;
 		this.x=x;
 		this.y=y;
-		this.id=0;
+		this.id=id;
 	}
 	get deltaX() { return this.dragX - this.x; }
 	get deltaY() { return this.dragY - this.y; }
@@ -41,7 +26,6 @@ let usedIDs = 0;
 class Thread{
 	constructor(worker){
 		this.worker = new Worker(worker);
-		this.waitingForResponse = false;
 		this.timeOfLastMessage = Date.now();
 		this.actionHandlerMap = {};
 		this.worker.onmessage = this.onmessage.bind(this);
@@ -59,7 +43,6 @@ class Thread{
 	}
 
 	onmessage(e){
-		this.waitingForResponse = false;
 		this.timeOfLastMessage = Date.now();
 		if(Object.hasOwn(e.data, "id")){
 			const { id, response } = e.data;
@@ -69,16 +52,26 @@ class Thread{
 		}
 
 		switch(e.data.type){
+			case "alert":
+        alert(e.data.value);
+				break;
 			case "ruleMetadata":
 				ruleMetadata = e.data.ruleMetadata;
+				//initializes the menu of draw states
+				setDrawMenu();
+				console.log(ruleMetadata);
 				if(socket)socket.emit("rule", ruleMetadata.string);
+				updateCanvasColor(true);
 				break;
 			case "render":
 				visiblePattern = e.data.pattern;
 				visiblePatternLocation.y = e.data.top;
 				visiblePatternLocation.x = e.data.left;
+				if(GRID.backgroundState!==e.data.backgroundState){
+					canvas.style.backgroundColor=ruleMetadata.color[e.data.backgroundState][e.data.backgroundState];
+				}
 				GRID.backgroundState = e.data.backgroundState;
-				render();
+				requestAnimationFrame(render);
 				document.getElementById("population").innerHTML="Population "+e.data.population;
 				document.getElementById("gens").innerHTML="Generation "+e.data.generation;
 				break;
@@ -108,15 +101,11 @@ var
 	//ID of the thing being dragged(0=nothing,-4 to -1 and 4 to 4 for each corner)
 	edgeBeingDragged=0,
 	//whether the cursor draws a specific state or changes automatically;-1=auto, other #s =state
-	state=-1,
-	//state currently being drawn by the cursor, -1=none
-	drawnState=-1,
+	drawMode=1,
 	//list of cells drawn in one action
 	drawnCells=[],
 	//this determines whether the simulation is in draw, move, or select mode
 	editMode=0,
-	//changes the amount of movement based on frame rate
-	frameMultiplier=1,
 	//time elapsed
 	genCount=0,
 	//state of the grid
@@ -133,9 +122,9 @@ var
 		backgroundState:0
 	},
 	//used for rendering user caused changes
-	runMainLoop=false,
+	isKeyPressed=false,
 	//whether or not the sim is playing
-	isPlaying=0,
+	isPlaying=false,
 	//array of key states
 	key=[],
 	//these are the 6 markers which can be placed on the grid
@@ -150,14 +139,18 @@ var
 	//rule stored internally as an n-tree for a n state rule
 	rule,
 	//number of nodes in the rule, rule family(INT, Generations, History), color
-	ruleMetadata={size:0,family:"INT",color:[]},
+	ruleMetadata={size:0,
+                family:"INT",color:[[]],
+                numberOfStates:2,
+                aliveState:[1,1],
+                deadState:[0,0],
+                forceDeath:[false,false],
+                forceLife:[false,false]},
 	//selected area
 	//TODO: store dimensions as array and add getters for top, left, etc...
-	selectArea=new Area(),
+	selectArea={isActive:false,top:0,right:0,bottom:0,left:0},
 	//index of the marker being selected and interacted with
 	selectedMarker=-1,
-	//keeps track of when the last simulation update occurred
-	timeOfLastUpdate=0,
 	//keeps track of when the last generation occurred
 	timeOfLastGeneration=0,
 	//position of the current view(x/y position,zoom)
@@ -199,45 +192,12 @@ save();
 if(location.search!=="")importSettings();
 
 function main(){
-	//resized the canvas whenever the window changes size
-	if(
-		windowWidth!==(window.innerWidth || document.documentElement.clientWidth)||
-		windowHeight<(window.innerHeight || document.documentElement.clientHeight)||
-		windowHeight>(window.innerHeight || document.documentElement.clientHeight)+40){
-		scaleCanvas();
-	}
-	//adjust a movement multplier based on the current framerate
-	if(timeOfLastUpdate===0){
-		frameMultiplier=1;
-	}else{
-		//use a weighted sum which changes frameMultiplier by 1/10th the difference
-		frameMultiplier=0.1*(9*frameMultiplier+(Date.now()-timeOfLastUpdate)*0.04);
-	}
-	timeOfLastUpdate=Date.now();
-	
 	//register key inputs
 	repeatingInput();
-	//register mouse and touch inputs
-	// if(pointers.length>0)update();
-	//run a generation of the simulation
-	if(isPlaying<0||(isPlaying>0&&Date.now()-timeOfLastGeneration>1000-10*parseInt(document.getElementById("speed").value))){
-		timeOfLastGeneration=Date.now();
-		// if(GRID.type===0){
-		// 	document.getElementById("population").innerHTML="Population "+(GRID.backgroundState===0?GRID.head.population:GRID.head.distance*GRID.head.distance-GRID.head.population);
-		// }else{
-		// 	document.getElementById("population").innerHTML="Population "+gridPopulation;
-		// }
-		// document.getElementById("gens").innerHTML="Generation "+genCount;
-
-		wasReset=false;
-		for(let i=0;i<document.getElementById("searchOptions").children.length-1;i++){
-			searchAction(document.getElementById("searchOptions").children[i]);
-		}
-	}
 	//draw the simulation
-	if(isPlaying===0)render();
+	render();
 	//call the next frame if if the simulation is playing or a key is pressed
-	if(isPlaying!==0||runMainLoop)requestAnimationFrame(main);
+	if(isKeyPressed)requestAnimationFrame(main);
 }
 requestAnimationFrame(main);
 
@@ -428,10 +388,9 @@ function exportSetting(){
 	let text=`${window.location.protocol}//${window.location.host}
 		${window.location.pathname}?v=0.4.4`;
 
-	if(resetEvent!==null)setEvent(resetEvent);
-	if(state!==-1){
-		text+="&draw="+state;
-	}
+  //TODO: rewrite
+	// if(resetEvent!==null)setEvent(resetEvent);
+	text+="&draw="+drawMode;
 
 	if(genCount!==0)text+="&gen="+genCount;
 
@@ -532,68 +491,26 @@ function exportSetting(){
 	document.getElementById("settingsExport").innerHTML=text;
 	document.getElementById("settingsExport").href=text;
 
-	if(resetEvent!==null)setEvent(currentEvent);
+  //TODO: rewrite
+	// if(resetEvent!==null)setEvent(currentEvent);
 }
 
 function drawCell(){
 	//coordinates of the touched cell
 	let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
 	let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
-	if(drawnCells.length===0||drawnCells[drawnCells.length-1].x!==x||drawnCells[drawnCells.length-1].y!==y){
-		drawnCells.push({x:x, y:y, oldState:null, newState: drawnState});
+	let queueEnd = drawnCells[drawnCells.length - 1];
+	if(GRID.type===0||(y>=GRID.finiteArea.top&&x<GRID.finiteArea.right&&y<GRID.finiteArea.bottom&&x>=GRID.finiteArea.left)){
+		if(queueEnd.length===0){
+			queueEnd.push({x:x, y:y, oldState:null, newState: -1});
+		}else if(queueEnd[queueEnd.length-1].x!==x||queueEnd[queueEnd.length-1].y!==y){
+			queueEnd.push({x:x, y:y, oldState:null, newState: queueEnd[0].newState});
+		}
 	}
 	render();
 }
 
-//mouse input
-canvas.onmousedown = function(event){
-	if(event.target.nodeName==="CANVAS")canvas.focus();
-	edgeBeingDragged=0;
-	inputReset();
-	pointers.push(new Pointer((event.clientX-canvas.getBoundingClientRect().left),(event.clientY-canvas.getBoundingClientRect().top)));
-	if(editMode===0){
-		drawCell();
-		worker.postMessage({
-			type:"writeCell",
-			args:[
-				Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x),
-				Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y),
-				1]}).then((response) => {
-			drawnState = response===0?1:0;
-		});
-	}
-	if(runMainLoop===false){
-		if(pointers.length>0)update();
-	}
-	event.preventDefault();
-};
-
-canvas.onmousemove = function(event){
-	if(pointers.length>0){
-		pointers[0].x=event.clientX-canvas.getBoundingClientRect().left;
-		pointers[0].y=event.clientY-canvas.getBoundingClientRect().top;
-	}
-	if(drawnState!==-1){
-		drawCell();
-	}
-	if(editMode===2){
-		move();
-	}
-		
-	if(pointers.length>0&&runMainLoop===false){
-		update();
-	}
-};
-
-window.onmouseup = function(){
-	edgeBeingDragged=0;
-	inputReset();
-	pointers.splice(0,1);
-	if(runMainLoop===false){
-		if(pointers.length>0)update();
-	}
-};
-
+//TODO: replace reading and writing to clipboard with navigator API
 window.addEventListener("copy", (event) => {
 	if (/[^input|textarea|select]/i.test(document.activeElement.tagName)) {
 		if(event.cancelable)event.preventDefault();
@@ -617,110 +534,92 @@ window.addEventListener("paste", (event) => {
 });
 
 window.onkeydown = function(event){
-	//if a key is pressed for the first time then reset the timer for the movement multiplier
-	if(runMainLoop===false)timeOfLastUpdate=0;
-	
-	if(event.ctrlKey===false&&event.keyCode!==9&&event.keyCode!==32&&(event.keyCode<37||event.keyCode>40)&&event.target.nodeName!=="TEXTAREA"&&(event.target.nodeName!=="INPUT"||event.target.type!="text")){
-		key[event.keyCode]=true;
-		//TODO: change this to fit with worker backend
+  if([9,32,37,38,39,40].includes(event.keyCode))return;
+  if(event.target.nodeName==="TEXTAREA")return;
+  if(event.target.nodeName==="INPUT"&&event.target.type==="text")return;
+  if(event.ctrlKey===true)return;
 
-		if(runMainLoop===false)requestAnimationFrame(main);
-		//set the flag that a key is down
-		runMainLoop=true;
+  key[event.keyCode]=true;
 
-		switch(event.keyCode){
-		case 13://enter
-			start();
-			break;
-		case 46://delete
-			deleteMarker();
-			break;
-		case 49://1
-			setDrawMode();
-			break;
-		case 50://2
-			setMoveMode();
-			break;
-		case 51://3
-			setSelectMode();
-			break;
-		case 67://c
-			setTimeout(() => { copy();});
-			break;
-		case 70://f
-			if(pasteArea.isActive){
-				//to rotate the paste area
-				if(key[16]){
-					//counter clockwise
-					flipOrtho("vertical");
-				}else{
-					//clockwise
-					flipOrtho("horizonal");
-				}
-			}else{
-				fitView();
-			}
-			break;
-		case 73://i
-			invertGrid();
-			break;
-		case 75://k
-			clearGrid();
-			break;
-		case 77://m
-			setMark();
-			break;
-		case 78://n
-			next();
-			break;
-		case 82://r
-			if(selectArea.isActive){
-				//to randomize the select area
-				randomizeGrid(selectArea);
-			}else if(pasteArea.isActive){
-				//to rotate the paste area
-				flipDiag();
-				if(key[16]){
-					//counter clockwise
-					flipOrtho("vertical");
-				}else{
-					//clockwise
-					flipOrtho("horizonal");
-				}
-			}
-			break;
-		case 83://s
-			if(key[16])selectAll();//and shift
-			break;
-		case 84://t
-			reset();
-			resetActions();
-			break;
-		case 86://v
-			paste();
-			// TODO: replace render() here
-			break;
-		case 88://x
-			cut();
-			break;
-		case 90://z
-			if(key[16]){
-				redo();
-			}else{
-				undo();
-			}
-			break;
-		}
-		event.preventDefault();
-	}
+  if(isKeyPressed===false)requestAnimationFrame(main);
+  //set the flag that a key is down
+  isKeyPressed=true;
+
+  switch(event.keyCode){
+  case 13: start(); break;//enter
+  case 46: deleteMarker(); break;//delete
+  case 49: setDrawMode(); break;//1
+  case 50: setMoveMode(); break;//2
+  case 51: setSelectMode(); break;//3
+  case 67: editArea("copy"); break;//c
+  case 70://f
+    if(pasteArea.isActive){
+      //to rotate the paste area
+      if(key[16]){
+        //counter clockwise
+        flipOrtho("vertical");//F
+      }else{
+        //clockwise
+        flipOrtho("horizonal");//f
+      }
+    }else{
+      fitView();
+    }
+    break;
+  case 73: //i
+    if(key[16]){
+      editArea("increment"); break;//I
+    }else{
+      editArea("invert"); break;//i
+    }
+  case 75: editArea("clear"); break;//k
+  case 77: setMark(); break;//m
+  case 78: next(); break;//n
+  case 82://r
+    if(selectArea.isActive){
+      //to randomize the select area
+      editArea("randomize", selectArea);
+    }else if(pasteArea.isActive){
+      //to rotate the paste area
+      flipDiag();
+      if(key[16]){
+        //counter clockwise
+        flipOrtho("vertical");
+      }else{
+        //clockwise
+        flipOrtho("horizonal");
+      }
+    }
+    break;
+  case 83: if(key[16])selectAll(); break;//s and shift
+  case 84://t
+    reset();
+    resetActions();
+    break;
+  case 86://v
+    paste();
+    // TODO: replace render() here
+    break;
+  case 88://x
+    editArea("cut");
+    break;
+  case 90://z
+    if(key[16]){
+      redo();
+    }else{
+      undo();
+    }
+    break;
+  }
+  event.preventDefault();
 };
 
 window.onkeyup = function(event){
 	key[event.keyCode]=false;
 
-	runMainLoop=false;
+	isKeyPressed=false;
 	for(let h in key){
-		if(key[h]===true)runMainLoop=true;
+		if(key[h]===true)isKeyPressed=true;
 	}
 };
 
@@ -735,78 +634,55 @@ window.onscroll = function(){
 	updateDropdownMenu();
 };
 
-//TODO: fix touch input
-//touch inputs
-function reloadPointers(event){
-	for (let i = 0; i < event.touches.length; i++) {
-		if(pointers.length<=i){
-			pointers.push(new Pointer((event.touches[i].clientX-canvas.getBoundingClientRect().left),(event.touches[i].clientY-canvas.getBoundingClientRect().top)));
-		}
-		pointers[i].id=event.touches[i].identifier;
-		console.log(pointers);
-	}
-	if(runMainLoop===false&&pointers.length>0)update();
-}
-
-function resetPointers(event){
-	edgeBeingDragged = 0;
-	if(event.cancelable)event.preventDefault();
-	//inputReset();
-
-	//reloadPointers(event);
-}
-
-canvas.ontouchstart = (event) => {
-	edgeBeingDragged = 0;
-	if(event.cancelable)event.preventDefault();
+canvas.onpointerdown = (event) => {
+	canvas.setPointerCapture(event.pointerId);
 	inputReset();
 
-	pointers.push(new Pointer((event.touches[event.touches.length - 1].clientX-canvas.getBoundingClientRect().left),(event.touches[event.touches.length - 1].clientY-canvas.getBoundingClientRect().top)));
-	const pointer = pointers[pointers.length - 1];
-	pointer.id=event.touches[event.touches.length - 1].identifier;
-	console.log(pointers.length);
+	pointers.push(new Pointer(event.clientX-canvas.getBoundingClientRect().left,event.clientY-canvas.getBoundingClientRect().top, event.pointerId));
 
-	if(editMode===0){
+	switch(editMode){
+		case 0:
+		drawnCells.push([]);
 		drawCell();
 		worker.postMessage({
 			type:"writeCell",
+			//TODO: reaname args to something less esoteric
 			args:[
-				Math.floor(((pointer.x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x),
-				Math.floor(((pointer.y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y),
-				1]}).then((response) => {
-			drawnState = response===0?1:0;
+				Math.floor(((pointers[pointers.length - 1].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x),
+				Math.floor(((pointers[pointers.length - 1].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y),
+				drawnCells.length-1
+			]
+		}).then((response) => {
+			for(const cell of drawnCells[response.index])
+				if(cell.newState===-1)cell.newState = response.state===0?drawMode:0;
+			if(pointers.length===0)sendDrawnCells(drawnCells[response.index], response.index);
 		});
+		break;
+		case 1: move(); break;
+		case 2: select(); break;
 	}
-	if(runMainLoop===false){
-		if(pointers.length>0)update();
-	}
-	console.log(pointers.length);
 }
 
-canvas.ontouchmove = (event) => {
-	for(let i = 0; i < event.touches.length; i++){
-		const index = pointers.findIndex((p) => p.id === event.touches[i].identifier);
-		if(pointers.length>0){
-			pointers[index].x=event.touches[index].clientX - canvas.getBoundingClientRect().left;
-			pointers[index].y=event.touches[index].clientY - canvas.getBoundingClientRect().top;
+canvas.onpointermove = (event) => {
+	const index = pointers.findIndex((p) => p.id === event.pointerId);
+  //TODO: add ability to draw while the rule (eg. history) is loading
+	if(pointers.length>0){
+		pointers[index].x=event.clientX - canvas.getBoundingClientRect().left;
+		pointers[index].y=event.clientY - canvas.getBoundingClientRect().top;
+		switch(editMode){
+			case 0: drawCell(); break;
+			case 1: move(); break;
+			case 2: select(); break;
 		}
 	}
-	if(event.cancelable)event.preventDefault();
-	if(drawnState!==-1){
-		drawCell();
-	}
-	if(editMode===2){
-		move();
-	}
-		
-	if(pointers.length>0&&runMainLoop===false){
-		update();
-	}
 }
 
-canvas.ontouchend = () => {
+canvas.onpointerup = (event) => {
 	pointers = [];
+	const index = pointers.findIndex((p) => p.id === event.pointerId);
+	pointers.splice(index, 1);
 	inputReset();
+  render();
 }
 
 //controls zooming of the camera using the mouse wheel
@@ -817,9 +693,7 @@ canvas.onwheel = function(event){
 		const mouseY = event.clientY-canvas.getBoundingClientRect().top;
 		zoom(1-0.1*Math.sign(event.deltaY), mouseX, mouseY);
 
-		// if(runMainLoop===false&&pointers.length>0)update();
-		if(!worker.waitingForResponse)worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
-		worker.waitingForResponse = true;
+		worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
 	}
 };
 
@@ -870,6 +744,16 @@ function updateDropdownMenu(){
 	}
 }
 
+function sendDrawnCells(element, index){
+	//TODO: clear cells to be drawn after a new pattern to render is received
+	if(element.length>0&&element[0].newState!==-1){
+		worker.postMessage({type:"drawList", editList:element}).then((changedCells) => {
+			if(socket&&resetEvent===null)socket.emit("draw", Date.now(), changedCells);
+		});
+		delete drawnCells[index];
+	}
+}
+
 //resets various values at the start and end of inputs
 function inputReset(){
 	captureScroll=true;
@@ -878,14 +762,7 @@ function inputReset(){
 	view.touchY=view.y;
 	view.touchZ=view.z;
 	//reset drawState and save any changes to the grid
-	if(drawnState!==-1){
-		worker.postMessage({type:"drawList",cellList:drawnCells, state:drawnState})
-			.then((changedCells) => {
-				if(socket&&resetEvent===null)socket.emit("draw", Date.now(), changedCells);
-			});
-		drawnCells=[];
-		drawnState=-1;
-	}
+	drawnCells.forEach(sendDrawnCells);
 	if(GRID.finiteArea.newTop!==GRID.finiteArea.top||GRID.finiteArea.newRight!==GRID.finiteArea.right||GRID.finiteArea.newBottom!==GRID.finiteArea.bottom||GRID.finiteArea.newLeft!==GRID.finiteArea.left){
 		let resizedArray=new Array(GRID.finiteArea.newRight-GRID.finiteArea.newLeft+(GRID.type===1?2:0));
 		for(let i=0; i<resizedArray.length;i++){
@@ -905,6 +782,9 @@ function inputReset(){
 		GRID.finiteArea.left=GRID.finiteArea.newLeft;
 	}
 
+	//keeps track of select area edges
+	edgeBeingDragged = 0;
+
 	//reset the markers
 	selectedMarker=-1;
 	if(selectArea.left===selectArea.right||selectArea.top===selectArea.bottom){
@@ -916,56 +796,53 @@ function inputReset(){
 //gets key inputs
 function repeatingInput(){
 	//] to zoom in
-	if(key[221]){
-		zoom(1+0.05*frameMultiplier);
-	}
+	if(key[221]) zoom(1.05);
 	//[ to zoom out
-	if(key[219]){
-		zoom(1/(1+0.05*frameMultiplier));
-	}
+	if(key[219]) zoom(0.95);
 	//wasd keys for move when shift is not pressed
 	if(!key[16]){
-		if(key[65]) view.x-=0.5/view.z*frameMultiplier;
-		if(key[87]) view.y-=0.5/view.z*frameMultiplier;
-		if(key[68]) view.x+=0.5/view.z*frameMultiplier;
-		if(key[83]) view.y+=0.5/view.z*frameMultiplier;
+		if(key[65]) view.x-=0.5/view.z;
+		if(key[87]) view.y-=0.5/view.z;
+		if(key[68]) view.x+=0.5/view.z;
+		if(key[83]) view.y+=0.5/view.z;
 		if((key[65]||key[87]||key[68]||key[83]||key[219]||key[221])&&resetEvent===null){
 			if(socket)socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
 			//coordinates of the touched cell
-			if(!worker.waitingForResponse)worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
-			worker.waitingForResponse = true;
-			if(drawnState!==-1){
-				drawCell();
-			}
+			worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
+      //drawstate can be !=-1 without a pointer due to async if you draw and move while busy(eg. loading a rule)
+			if(pointers.length>0&&drawnCells&&drawnCells[drawnCells.length-1]) drawCell();
 		}
 	}
 }
 
-function getColor(cellState){
-	//TODO: rewrite
-	if(document.getElementById("antiStrobing").checked)cellState=(cellState-GRID.backgroundState+ruleMetadata.numberOfStates)%ruleMetadata.numberOfStates;
+//TODO: add + and - keybingings to adjust speed
+function setSimSpeed(element){
+  worker.postMessage({type: "setSpeed", value: parseInt(element.value)});
+}
 
-	/*if(ruleMetadata.color[cellState]){
-		return ruleMetadata.color[cellState];
-	}else */if(darkMode){
-		if(cellState===0){
-			return "#222";
-		}else if(cellState===1){
-			return "#f1f1f1";
-		}else{
-			let color=240/ruleMetadata.numberOfStates*(ruleMetadata.numberOfStates-cellState);
-			return `rgb(${color},${color},${color})`;
-		}
-	}else{
-		if(cellState===0){
-			return "#f1f1f1";
-		}else if(cellState===1){
-			return "#000";
-		}else{
-			let color=240/ruleMetadata.numberOfStates*(cellState-1);
-			return `rgb(${color},${color},${color})`;
-		}
-	}
+function setColors(){
+  if(ruleMetadata.family !== "INT" && ruleMetadata.family !== "Generations")return;
+
+  for (let backgroundState = 0; backgroundState < ruleMetadata.numberOfStates; backgroundState++) {
+    const palette = ruleMetadata.color[backgroundState] = new Array(ruleMetadata.numberOfStates);
+    for (let cellState = 0; cellState < palette.length; cellState++) {
+      const displayedState = document.getElementById("antiStrobing").checked?(cellState-backgroundState+ruleMetadata.numberOfStates)%ruleMetadata.numberOfStates:cellState;
+       
+			if(displayedState===0){
+				palette[cellState] = darkMode?"#222222":"#F1F1F1";
+			}else if(displayedState===1){
+				palette[cellState] = darkMode?"#F1F1F1":"#000000";
+			}else{
+				let color=240/ruleMetadata.numberOfStates*darkMode?(ruleMetadata.numberOfStates-displayedState):(displayedState-1);
+				palette[cellState] = `rgb(${color},${color},${color})`;
+			}
+    }
+  }
+	render();
+}
+
+function getColor(cellState){
+  return ruleMetadata.color[GRID.backgroundState][cellState];
 }
 
 //switch to draw mode
@@ -1013,28 +890,32 @@ function setActionMenu(){
 	}
 }
 
-//TODO: rewrite
+function setButtonColor(element,state){
+  let brightness = 0;
+  if(/#[0-9A-F]{6}/.test(getColor(state))){
+    const [R, G, B] = getColor(state).match(/[0-F]{2}/g).map((value) => parseInt(value, 16));
+    brightness = Math.sqrt(0.299*R*R + 0.587*G*G + 0.114*B*B);//source: https://alienryderflex.com/hsp.html
+  }else console.log(getColor(state), " is not in #RRGGBB format");
+	element.style.backgroundColor=getColor(state);
+	if(brightness>128){
+		element.style.color="#000000";
+	}else{
+		element.style.color="#BBBBBB";
+	}
+}
 
 function setDrawMenu(){
-// 	document.getElementById("drawMenu").children[1].innerHTML="<button onclick=\"changeDrawMode(this);\" style=\"display: none;\">Cycle</button>";
-// 	for(let i=0;i<rule.length;i++){
-// 		document.getElementById("drawMenu").children[1].innerHTML+=`<button onclick="changeDrawMode(this);">${i}</button>`;
-//
-// 		if(i!==0)document.getElementById("drawMenu").children[1].children[i+1].style.backgroundColor=getColor(i);
-// 		if(i>rule.length*0.8||i===0){
-// 			if(darkMode){
-// 				document.getElementById("drawMenu").children[1].children[i+1].style.color="#bbb";
-// 			}else{
-// 				document.getElementById("drawMenu").children[1].children[i+1].style.color="#000";
-// 			}
-// 		}else{
-// 			if(darkMode){
-// 				document.getElementById("drawMenu").children[1].children[i+1].style.color="#000";
-// 			}else{
-// 				document.getElementById("drawMenu").children[1].children[i+1].style.color="#bbb";
-// 			}
-// 		}
-// 	}
+  //calculate colors for each state of the current rule
+  setColors();
+  
+	const menu = document.getElementById("drawMenu").children[1];
+	menu.innerHTML="";
+	for(let i=0;i<ruleMetadata.numberOfStates;i++){
+		menu.innerHTML+=`<button onclick="changeDrawMode(this);">${i}</button>`;
+		setButtonColor(menu.children[i], i);
+	}
+	menu.children[drawMode].style.display = "none";
+	setButtonColor(menu.parentNode.children[0], drawMode);
 }
 
 function identify(){
@@ -1148,7 +1029,8 @@ function getSpaceshipEnvelope(ship,grid,area){
 				shipPattern[j]=readPattern(...spaceshipEnvelope,grid);
 				gen(grid);
 			}
-			setEvent(initialEvent);
+      //TODO: rewrite
+			// setEvent(initialEvent);
 			return {
 				dx:(location.x+searchArea[3])-(startLocation.x+area.left),
 				dy:(location.y+searchArea[0])-(startLocation.y+area.top),
@@ -1158,7 +1040,8 @@ function getSpaceshipEnvelope(ship,grid,area){
 			};
 		}
 	}
-	setEvent(initialEvent);
+  //TODO: rewrite
+	// setEvent(initialEvent);
 	return {dx:null, dy:null, shipOffset:{x:null,y:null},period:0,phases:[]};
 }
 
@@ -1192,7 +1075,7 @@ function patternToBitmap(pattern){
 	context.scale(1,1);
 
 	if(darkMode){
-		context.strokeStyle="#999";
+		context.strokeStyle="#999999";
 	}else{
 		context.strokeStyle="#000000";
 	}
@@ -1200,7 +1083,7 @@ function patternToBitmap(pattern){
 	for(let i=0;i<pattern.length;i++){
 		for(let j=0;j<pattern[i].length;j++){
 			context.fillStyle=getColor(pattern[i][j]);
-			if(pattern[i][j]!==0)context.fillRect(i*cellWidth,j*cellWidth,1*cellWidth,1*cellWidth);
+			context.fillRect(i*cellWidth,j*cellWidth,1*cellWidth,1*cellWidth);
 		}
 	}
 	context.lineWidth=1;
@@ -1342,7 +1225,7 @@ function setSalvoIteration(optionElement, value){
 		currentEvent=new EventNode(currentEvent,"generate salvo");
 	}
 	
-	if(isPlaying===0)render();
+	if(!isPlaying)render();
 }
 
 function duplicateLastChild(element){
@@ -1457,10 +1340,10 @@ function changeAction(element){
 		name: "Randomize",
 		action: (element) => {
 			if(selectArea.isActive&&element.children[2].children[0].innerHTML==="Select Area"){
-				randomizeGrid(selectArea);
+				editArea("randomize",selectArea);
 			}else if(element.children[2].children[0].innerHTML.includes("Marker")){
 				const marker=markers[parseInt(element.children[2].children[0].innerHTML[7])-1];
-				if(marker.activeState!==0)randomizeGrid(marker);
+				if(marker.activeState!==0)editArea("randomize",marker);
 			}
 			currentEvent=new EventNode(currentEvent, "randomize");
 		}
@@ -1486,10 +1369,12 @@ function changeAction(element){
 	{name: "Increment Area",
 		action: (element) => {
 			if(selectArea.isActive&&element.children[2].children[0].innerHTML==="Select Area"){
-				incrementArea(selectArea);
+        //TODO: replace with editArea("increment");
+				editArea("increment", selectArea);
 			}else if(element.children[2].children[0].innerHTML.includes("Marker")){
 				const marker=markers[parseInt(element.children[2].children[0].innerHTML[7])-1];
-				if(marker.activeState!==0)incrementArea(marker);
+        //TODO: replace with editArea("increment");
+				if(marker.activeState!==0)editArea("increment", marker);
 			}
 			currentEvent=new EventNode(currentEvent, "increment area");
 		}
@@ -1588,15 +1473,15 @@ function changeGridType(target){
 		GRID.finiteArea.margin=targetIndex===1?1:0;
 		GRID.finiteArea.top = response[3];
 		//                      leftSidePos + pattern width - 2*margin
-		GRID.finiteArea.right = response[2] + response[0].length - 2*GRID.finiteArea.margin;
+		GRID.finiteArea.right = response[2] + response[0].length;
 		//                      topSidePos + pattern height - 2*margin
-		GRID.finiteArea.bottom = response[3] + response[0][0].length - 2*GRID.finiteArea.margin;
+		GRID.finiteArea.bottom = response[3] + response[0][0].length;
 		GRID.finiteArea.left = response[2];
 		GRID.finiteArea.newTop = response[3];
 		//                      leftSidePos + pattern width - 2*margin
-		GRID.finiteArea.newRight = response[2] + response[0].length - 2*GRID.finiteArea.margin;
+		GRID.finiteArea.newRight = response[2] + response[0].length;
 		//                      topSidePos + pattern height - 2*margin
-		GRID.finiteArea.newBottom = response[3] + response[0][0].length - 2*GRID.finiteArea.margin;
+		GRID.finiteArea.newBottom = response[3] + response[0][0].length;
 		GRID.finiteArea.newLeft = response[2];
 		render();
 		if(socket)socket.emit("changeGrid", response);
@@ -1612,24 +1497,9 @@ function changeDrawMode(target){
 	let dropdown = target.parentElement;
 
 	//update the draw state settings
-	state=Array.from(dropdown.children).indexOf(target)-1;
+	drawMode=Array.from(dropdown.children).indexOf(target);
 
-	if(state>-1){
-		document.getElementById("drawMenu").children[0].style.backgroundColor=getColor(state);
-	}
-	if(state>rule.length*0.8||state===0||state===-1){
-		if(darkMode){
-			document.getElementById("drawMenu").children[0].style.color="#bbb";
-		}else{
-			document.getElementById("drawMenu").children[0].style.color="#000";
-		}
-	}else{
-		if(darkMode){
-			document.getElementById("drawMenu").children[0].style.color="#000";
-		}else{
-			document.getElementById("drawMenu").children[0].style.color="#bbb";
-		}
-	}
+	setButtonColor(document.getElementById("drawMenu").children[0],drawMode);
 
 	replaceDropdownElement(target);
 }
@@ -1642,23 +1512,16 @@ function deleteOption(target){
 }
 
 function selectAll(){
-	if(GRID.head.value!==0){
-		pasteArea.isActive=false;
-		selectArea.isActive=true;
-		setActionMenu();
-		if(GRID.type===0){
-			selectArea.top=(getTopBorder(GRID.head)??0)/2-0.5;
-			selectArea.right=(getRightBorder(GRID.head)??0)/2+0.5;
-			selectArea.bottom=(getBottomBorder(GRID.head)??0)/2+0.5;
-			selectArea.left=(getLeftBorder(GRID.head)??0)/2-0.5;
-		}else{
-			selectArea.top=GRID.finiteArea.top;
-			selectArea.right=GRID.finiteArea.right;
-			selectArea.bottom=GRID.finiteArea.bottom;
-			selectArea.left=GRID.finiteArea.left;
-		}
-		render();
-	}
+  pasteArea.isActive=false;
+  selectArea.isActive=true;
+  setActionMenu();
+  worker.postMessage({type: "getBounds"}).then((response) => {
+    selectArea.top=response[0];
+    selectArea.right=response[1];
+    selectArea.bottom=response[2];
+    selectArea.left=response[3];
+  });
+  render();
 }
 
 function findPattern(area,pattern){
@@ -1680,45 +1543,23 @@ function findPattern(area,pattern){
 	return {x:-1,y:-1};
 }
 
-function copy(){
+function editArea(action, area=selectArea){
 	if(pasteArea.isActive){
 		resetClipboard();
 	}else if(selectArea.isActive===true){
-		worker.postMessage({type:"copy", area:selectArea}).then((response) => {
-			clipboard[activeClipboard].pattern=response;
-			clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
-		});
-		console.log(clipboard[activeClipboard]);
-		// GRID.head=widenTree(selectArea);
-		// clipboard[activeClipboard].pattern=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
-		pasteArea.top=selectArea.top;
-		pasteArea.left=selectArea.left;
-		clipboard[activeClipboard].shipInfo={dx:null,dy:null,phases:[],period:0};
-		selectArea.isActive=false;
+    console.log(area);
+    worker.postMessage({type:action, area:area, drawMode:drawMode, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
+      if(action==="copy"||action==="cut"){
+        clipboard[activeClipboard].pattern=response;
+        clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
+        pasteArea.top=selectArea.top;
+        pasteArea.left=selectArea.left;
+        clipboard[activeClipboard].shipInfo={dx:null,dy:null,phases:[],period:0};
+        selectArea.isActive=false;
+      }
+    });
 		setActionMenu();
 		render();
-	}
-}
-
-function cut(){
-	if(pasteArea.isActive){
-		resetClipboard();
-	}else if(selectArea.isActive===true){
-		GRID.head=widenTree(selectArea);
-		clipboard[activeClipboard].pattern=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
-		pasteArea.top=selectArea.top;
-		pasteArea.left=selectArea.left;
-		let clearedArray = new Array(selectArea.right-selectArea.left);
-		for(let i=0; i< clearedArray.length; i++){
-			clearedArray[i]=new Array(selectArea.bottom-selectArea.top);
-			clearedArray[i].fill(0);
-		}
-		currentEvent=writePatternAndSave(selectArea.left,selectArea.top, clearedArray);
-		if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-		isPlaying=0;
-		selectArea.isActive=false;
-		setActionMenu();
-		// TODO: replace render() here
 	}
 }
 
@@ -1726,9 +1567,9 @@ function paste(){
 	captureScroll=true;
 	if(clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length!==0){
 		if(pasteArea.isActive){
-			currentEvent=writePatternAndSave(pasteArea.left,pasteArea.top,clipboard[activeClipboard].pattern);
-			console.log(currentEvent);
-			if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
+			worker.postMessage({type:"write", args: [pasteArea.left,pasteArea.top,clipboard[activeClipboard].pattern]});
+			//TODO: reimplement this
+			// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
 		}else{
 			selectArea.isActive=false;
 			pasteArea.isActive=true;
@@ -1737,69 +1578,6 @@ function paste(){
 		}
 		setActionMenu();
 	}
-}
-
-//fill the grid with random cell states
-function randomizeGrid(area){
-	let randomArray=new Array(area.right-area.left);
-	for(let i=0;i<randomArray.length;i++){
-		randomArray[i]=new Array(area.bottom-area.top);
-		for(let j=0;j<randomArray[0].length;j++){
-			if(Math.random()<document.getElementById("density").value/100){
-				randomArray[i][j]=1;
-			}else{
-				randomArray[i][j]=0;
-			}
-		}
-	}
-
-	currentEvent=writePatternAndSave(area.left,area.top, randomArray);
-	if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-	// TODO: replace render() here
-}
-
-//run the CA for one generation within the provided area
-function incrementArea(area){
-	let initalArray=readPattern(area.top-1,area.right+1,area.bottom+1,area.left-1);
-
-	currentEvent=writePatternAndSave(area.left,area.top, iteratePattern(initalArray,1,initalArray.length-1,initalArray[0].length-1,1));
-	if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-	// TODO: replace render() here
-}
-
-//clear the grid
-function clearGrid(){
-	if(selectArea.isActive===true){
-		let clearedArray = new Array(selectArea.right-selectArea.left);
-		for(let i=0; i< clearedArray.length; i++){
-			clearedArray[i]=new Array(selectArea.bottom-selectArea.top);
-			clearedArray[i].fill(0);
-		}
-		currentEvent=writePatternAndSave(selectArea.left,selectArea.top, clearedArray);
-		if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-	}
-	// TODO: replace render() here
-}
-
-//fill the grid with the opposite cell state, states 2+ are unchanged
-function invertGrid(){
-	if(pasteArea.isActive){
-		resetClipboard();
-	}else if(selectArea.isActive===true){
-		GRID.head=widenTree(selectArea);
-		let invertedArea=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
-
-		for(let i=0; i<invertedArea.length; i++){
-			for(let j=0; j<invertedArea[0].length; j++){
-				if(invertedArea[i][j]===0||invertedArea[i][j]===1)invertedArea[i][j]=1-invertedArea[i][j];
-			}
-		}
-
-		currentEvent=writePatternAndSave(selectArea.left,selectArea.top, invertedArea);
-		if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-	}
-	isPlaying=0;
-	// TODO: replace render() here
 }
 
 //flip the pattern to be pasted
@@ -1905,12 +1683,12 @@ function setView(top, right, bottom, left){
 	view.touchY=0;
 	view.z=Math.min(canvasWidth/cellWidth/(right-left+2),canvasHeight/cellWidth/(bottom-top+2));
 	view.touchZ=view.z;
-	updateLines();
+  worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
+	updateCanvasColor();
 	if(socket&&resetEvent===null){
 		socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
 		socket.emit("zoom", {id:clientId, zoom:view.z});
 	}
-	if(isPlaying===0)render();
 }
 
 function fitView(){
@@ -1966,24 +1744,15 @@ function isElementCheckedById(id){
 function setDark(){
 	if(document.getElementById("darkTheme").checked){
 		darkMode=1;
-		if(detailedCanvas===true){
-			canvas.style.backgroundColor="#222";
-		}else{
-			canvas.style.backgroundColor="#2c2c2c";
-		}
 		document.getElementById("LightTheme").disabled =true;
 		document.getElementById("DarkTheme").disabled =false;
 	}else{
 		darkMode=0;
-		if(detailedCanvas===true){
-			canvas.style.backgroundColor="#f1f1f1";
-		}else{
-			canvas.style.backgroundColor="#ddd";
-		}
 		document.getElementById("LightTheme").disabled =false;
 		document.getElementById("DarkTheme").disabled =true;
 	}
 	setDrawMenu();
+  updateCanvasColor();
 	// TODO: replace render() here
 }
 
@@ -1994,78 +1763,31 @@ function next(){
 
 //toggle updating the simulation
 function start(){
-	if(isPlaying===0){
-		isPlaying=1;
+	if(!isPlaying){
+		isPlaying=true;
 		worker.postMessage({type:"start",args:[]});
 	}else{
-		isPlaying=0;
+		isPlaying=false;
 		worker.postMessage({type:"stop",args:[]});
 	}
 }
 
-function setEvent(gridEvent){
-	if(!("type" in gridEvent)){
-		setEvent(gridEvent.parent);
-		if("draw" in gridEvent){
-			for(let i=0;i<gridEvent.draw.length;i++){
-				writePattern(gridEvent.draw[i].x,gridEvent.draw[i].y,[[gridEvent.draw[i].newState]], GRID);
-			}
-			if(socket&&resetEvent===null)socket.emit("draw",Date.now(),gridEvent.draw);
-		}else if("paste" in gridEvent){
-			writePattern(...gridEvent.paste.newPatt, GRID);
-			if(socket&&resetEvent===null)socket.emit("paste",Date.now(),gridEvent.paste);
-		}
-	}else{
-		if("generation" in gridEvent){
-			genCount=gridEvent.generation;
-			document.getElementById("gens").innerHTML="Generation "+genCount;
-		}
-		if("backgroundState" in gridEvent)GRID.backgroundState=gridEvent.backgroundState;
-
-		if("resetEvent" in gridEvent)resetEvent=gridEvent.resetEvent;
-
-		//redundent, remove at some point if "type" is still used for events storing the entire grid
-		if("type" in gridEvent){
-			GRID.type=gridEvent.type;
-			setMenu("gridMenu",GRID.type);
-			
-			emptyNodes=emptyNodes.map(()=>null);
-			if(GRID.type===0){
-				GRID.head=gridEvent.head;
-				document.getElementById("population").innerHTML="Population "+GRID.head.population;
-			}else{
-				if(typeof(gridEvent.finiteArray)==="string"){
-					GRID.finiteArray=parseRLE(gridEvent.finiteArray).pattern;
-				}else{
-					GRID.finiteArray=gridEvent.finiteArray;
-				}
-				GRID.finiteArea.top=gridEvent.finiteArea.top;
-				GRID.finiteArea.right=gridEvent.finiteArea.left+GRID.finiteArray.length;
-				GRID.finiteArea.bottom=gridEvent.finiteArea.top+GRID.finiteArray[0].length;
-				GRID.finiteArea.left=gridEvent.finiteArea.left;
-				GRID.finiteArea.margin=GRID.type===1?1:0;
-			}
-		}
-	}
-	currentEvent=gridEvent;
-}
-
 function undo(){
 	worker.postMessage({type:"stop"});
-	isPlaying=0;
+	isPlaying=false;
 	worker.postMessage({type:"undo"});
 }
 
 function redo(){
 	worker.postMessage({type:"stop"});
-	isPlaying=0;
+	isPlaying=false;
 	worker.postMessage({type:"redo"});
 }
 
 function reset() {
 	if(isElementCheckedById("resetStop")===true){
 		worker.postMessage({type:"stop"});
-		isPlaying=0;
+		isPlaying=false;
 	}
 	worker.postMessage({type:"reset"});
 }
@@ -2130,13 +1852,14 @@ function menu(n){
 
 //import several settings
 function save(){
-	//save the rule
-	//TODO: move to worker
+  worker.postMessage({type: "setSpeed", value: parseInt(document.getElementById("speed").value)});
 	
+	//save the rule
 	if(document.getElementById("rule").value!==ruleMetadata.string&&document.getElementById("rule").value!==""){
 		worker.postMessage({type:"setRule",args:document.getElementById("rule").value});
-		isPlaying=0;
+		isPlaying=false;
 	}
+
 	// //save step size
 	if(document.getElementById("step").value){
 		if(isNaN(document.getElementById("step").value)){
@@ -2145,115 +1868,9 @@ function save(){
 			worker.postMessage({type:"stepSize",args:[parseInt(document.getElementById("step").value,10)]});
 		}
 	}
-	// TODO: replace render() here
-}
 
-function patternToBaseN(pattern){
-	//(g) is the number of states in the rule
-	//(result) accumulates the compressed pattern encoded as a base-n encoding, where n is the largest power of g <=52
-	//(stack) is a base (g) number, which holds information about a vertical "block" of cells
-	//each block contains the largest number of cells with <=64 total states(eg. 3 cells in g4b2s345)
-	let result="", stack=0, g=rule.length;
-	if(pattern.length===0)return result;
-	const blockSize=(52).toString(g).length-1;
-	const lookupTable="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-	for(let i=0;i<pattern[0].length;i+=blockSize){
-		for(let j=0;j<pattern.length;j++){
-			for(let k=0;k<blockSize&&i+k<pattern[0].length;k++){
-				//add the current cell state as the most significant digit in the stack
-				stack+=pattern[j][i+k]*(g**k);
-			}
-			//append (stack) as a base64 digit
-			result+=lookupTable[stack];
-			stack=0;
-		}
-	}
-	return result;
-}
-
-function baseNToPattern(width,height,compressedString){
-	//(pattern) is an empty (width) by (height) 2d array which will store the uncompressed pattern
-	//(g) is the number of states in the rule
-	//(stack) is a base (g) number, which holds information about a vertical "block" of cells
-	//each block contains the largest number of cells with <=64 total states(eg. 3 cells in g4b2s345)
-	//
-	let pattern=new Array(width), stack=0, g=rule.length, strIndex=0;
-	for(let i=0;i<width;i++){
-		pattern[i]=new Array(height);
-	}
-	const blockSize=(52).toString(g).length-1;
-	for(let i=0;i<height;i+=blockSize){
-		for(let j=0;j<width;j++){
-			if(strIndex>=compressedString.length){
-				console.log("baseN parseing error: string too long for dimensions");
-				return pattern;
-			}
-			stack="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".indexOf(compressedString[strIndex]);
-			strIndex++;
-			for(let k=0;k<blockSize&&i+k<height;k++){
-				pattern[j][i+k]=stack%g;
-				stack=Math.floor(stack/g);
-			}
-		}
-	}
-	return pattern;
-}
-
-function LZ77ToBaseN(string){
-	let result="",number=0,offset=0;
-	for(let i=0;i<string.length&&i<maxDepth;i++){
-		//write any letters directly to the result
-		if(isNaN(string[i])){
-			if(string[i]!=="~")result+=string[i];
-		}else{
-			//add digits to the number buffer
-			number=10*number+parseInt(string[i]);
-			//if the number is finished
-			if(isNaN(string[i+1])){
-				//use the number as the offset if there is a hyphen
-				if(string[i+1]==="~"){
-					offset=number;
-				//use the number to count out the repeated letters otherwise
-				}else{
-					for(let j=0;j<number;j++){
-						result+=result[result.length-offset-1];
-					}
-					offset=0;
-				}
-				number=0;
-			}
-		}
-	}
-	return result;
-}
-
-function baseNToLZ77(string){
-	let result="";
-	for(let i=0;i<string.length;i++){
-		let offset=0,repeat=1;
-		for(let j=0;j<i+1;j++){
-			//search the previous j characters
-			let stack=string.slice(i-j,i+1);
-			for(let k=0;;k++){
-				//find as how far the previous j characters repeat
-				if(i+k+1>=string.length||stack[k%stack.length]!==string[i+k+1]){
-					if(k>repeat&&k>j){
-						offset=j;
-						repeat=k;
-					}
-					break;
-				}
-			}
-		}
-		result+=string[i];
-		if(repeat>1&&offset===0||repeat>repeat.toString().length+offset.toString().length+1){
-			if(offset!==0)
-				result+=`${offset}~`;
-			result+=`${repeat}`;
-			i+=repeat;
-		}
-	}
-	return result;
+  setDark();
+	//TODO: save the export rulestrings format
 }
 
 function zoom(deltaZoom, xFocus=0.5*canvasWidth, yFocus=0.5*canvasHeight, pastViewX=view.x, pastViewY=view.y, pastViewZ=view.z) {
@@ -2262,25 +1879,19 @@ function zoom(deltaZoom, xFocus=0.5*canvasWidth, yFocus=0.5*canvasHeight, pastVi
 	view.y=pastViewY + (yFocus-0.5*canvasHeight)*(deltaZoom-1)/(deltaZoom)/cellWidth/pastViewZ;
 	if(socket&&resetEvent===null)socket.emit("zoom", {id:clientId, zoom:view.z});
 
-	updateLines();
+	updateCanvasColor();
 }
 
 //turn off lines if zoomed out significantly
 //then change canvas tone to match
-function updateLines(){
-	if(view.z<0.2&&detailedCanvas===true){
-		detailedCanvas=false;
-		if(darkMode){
-			canvas.style.backgroundColor="#2c2c2c";
+function updateCanvasColor(updateCanvas=false){
+	if(detailedCanvas!==view.x > 0.2||updateCanvas){
+    detailedCanvas = view.z > 0.2;
+		if(detailedCanvas){
+			canvas.style.backgroundColor=ruleMetadata.color[GRID.backgroundState][0];
 		}else{
-			canvas.style.backgroundColor="#ddd";
-		}
-	}else if(view.z>0.2&&detailedCanvas===false){
-		detailedCanvas=true;
-		if(darkMode){
-			canvas.style.backgroundColor="#222";
-		}else{
-			canvas.style.backgroundColor="#f1f1f1";
+			//calculate average of main color and offset for hidden lines
+			canvas.style.backgroundColor=ruleMetadata.color[GRID.backgroundState][0];
 		}
 	}
 }
@@ -2304,6 +1915,7 @@ function move(){
 				edgeBeingDragged=5;
 				pasteArea.pointerRelativeX=x-pasteArea.left;
 				pasteArea.pointerRelativeY=y-pasteArea.top;
+      //TODO: fix moving on using the pointer while in a finite grid mode
 			}else if(GRID.type!==0&&
 					x>=GRID.finiteArea.left-1-Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
 					x<GRID.finiteArea.right+1+Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
@@ -2312,17 +1924,17 @@ function move(){
 				//select the grid edges if necessary
 				if(x<Math.min(GRID.finiteArea.left+4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
 					edgeBeingDragged=3;
-					isPlaying=0;
+					isPlaying=false;
 				}else if(x>Math.max(GRID.finiteArea.right-4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
 					edgeBeingDragged=1;
-					isPlaying=0;
+					isPlaying=false;
 				}
 				if(y<Math.min(GRID.finiteArea.top+4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
 					edgeBeingDragged=4;
-					isPlaying=0;
+					isPlaying=false;
 				}else if(y>Math.max(GRID.finiteArea.bottom-4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
 					edgeBeingDragged=2;
-					isPlaying=0;
+					isPlaying=false;
 				}
 			}else{
 				//translate the grid
@@ -2385,8 +1997,7 @@ function move(){
 			break;
 		}
 	}
-	if(!worker.waitingForResponse)worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
-	worker.waitingForResponse = true;
+	worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
 }
 
 function select(){
@@ -2419,17 +2030,17 @@ function select(){
 		//     -1
 		if(x<Math.min(selectArea.left+4/view.z,(selectArea.right+selectArea.left)/2)){
 			edgeBeingDragged=-3;
-			isPlaying=0;
+			isPlaying=false;
 		}else if(x>Math.max(selectArea.right-4/view.z,(selectArea.right+selectArea.left)/2)){
 			edgeBeingDragged=3;
-			isPlaying=0;
+			isPlaying=false;
 		}
 		if(y<Math.min(selectArea.top+4/view.z,(selectArea.bottom+selectArea.top)/2)){
 			edgeBeingDragged+=1;
-			isPlaying=0;
+			isPlaying=false;
 		}else if(y>Math.max(selectArea.bottom-4/view.z,(selectArea.bottom+selectArea.top)/2)){
 			edgeBeingDragged-=1;
-			isPlaying=0;
+			isPlaying=false;
 		}
 		//deselect all markers
 		for(let h=0;h<markers.length;h++){
@@ -2526,96 +2137,33 @@ function select(){
 			selectArea.isActive=true;
 			setActionMenu();
 			edgeBeingDragged=0;
-			selectArea.dimensions=[y,x+1,y+1,x];
+			selectArea.top = y;
+			selectArea.right = x+1;
+			selectArea.bottom = y+1;
+			selectArea.left = x;
 		}
 	}
+	render();
 }
-
-function update(){
-	//if in write mode
-	if(editMode===0){
-		//TODO: rewrite for worker
-		
-		//if in move mode
-	}else if(editMode===1){
-		move();
-		//if in select mode
-	}else if(editMode===2){
-		select();
-	}
-}
-
-//TODO: rewrite for worker
-//
-//
-//
-// function getScreenXPosition(coordinate){
-// 	return canvasWidth*0.5-((view.x-coordinate)*cellWidth+canvasWidth*0.5)*view.z;
-// }
-//
-// function getScreenYPosition(coordinate){
-// 	return canvasHeight*0.5-((view.y-coordinate)*cellWidth+canvasHeight*0.5)*view.z;
-// }
-
-//function which recursively draws squares within the quadtree
-// function drawSquare(node,xPos,yPos){
-// 	const xSign=[-1,1,-1,1];
-// 	const ySign=[-1,-1,1,1];
-// 	if(getScreenXPosition((xPos-node.distance)/2)>canvasWidth)return;
-// 	if(getScreenYPosition((yPos+node.distance)/2)<0)return;
-// 	if(getScreenXPosition((xPos+node.distance)/2)<0)return;
-// 	if(getScreenYPosition((yPos-node.distance)/2)>canvasHeight)return;
-// 	if(node.value===null){
-// 		for(let i = 0;i < 4;i++){
-// 			//check if the node is empty or has a null child
-// 			if(node.value!==(document.getElementById("antiStrobing").checked?GRID.backgroundState:0)&&node.child[i]!==null){
-// 				drawSquare(node.child[i],xPos+node.child[i].distance*xSign[i],yPos+node.child[i].distance*ySign[i]);
-// 				if(isElementCheckedById("debugVisuals")===true&&node.value===null){
-// 					ctx.strokeStyle="rgba(240,240,240,0.7)";
-// 					ctx.beginPath();
-// 					ctx.moveTo(getScreenXPosition(xPos/2),getScreenYPosition(yPos/2),view.z*cellWidth,view.z*cellWidth);
-// 					ctx.lineTo(getScreenXPosition((xPos+xSign[i]*node.child[i].distance)/2),getScreenYPosition((yPos+ySign[i]*node.child[i].distance)/2),view.z*cellWidth,view.z*cellWidth);
-// 					ctx.lineWidth=view.z;
-// 					ctx.stroke();
-// 				}
-// 			}
-// 		}
-// 	}else{
-// 		if(node.value!==(document.getElementById("antiStrobing").checked?GRID.backgroundState:0)){
-// 			ctx.fillStyle=getColor(node.value);
-// 			ctx.fillRect(getScreenXPosition((xPos-node.distance)/2),getScreenYPosition((yPos-node.distance)/2),view.z*cellWidth*node.distance,view.z*cellWidth*node.distance);
-// 			//ctx.fillRect(canvasWidth*0.5-((view.x-(xPos-1)/2)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-(yPos-1)/2)*cellWidth+canvasHeight*0.5)*view.z,view.z*cellWidth,view.z*cellWidth);
-// 		}
-// 	}
-// 	if(isElementCheckedById("debugVisuals")===true&&node.distance<2048){
-// 		if(node.depth===null){
-// 			ctx.strokeStyle="#FF0000";
-// 		}else{
-// 			ctx.strokeStyle=`#${(Math.floor((Math.abs(Math.sin(3+node.depth*5+(node.key*7%hashTable.length)) * 16777215))).toString(16))}`;
-// 		
-// 		ctx.lineWidth=view.z*4/node.distance.toString(2).length;
-// 		ctx.strokeRect(canvasWidth*0.5-((view.x-(xPos-node.distance)*0.5)*cellWidth+canvasWidth*0.5-2/node.distance)*view.z,canvasHeight*0.5-((view.y-(yPos-node.distance)*0.5)*cellWidth+canvasHeight*0.5-2/node.distance)*view.z,(node.distance*cellWidth-4/node.distance)*view.z,(node.distance*cellWidth-4/node.distance)*view.z);
-// 	}
-// }
 
 //function which renders graphics to the canvas
 function renderPattern(pattern, x, y){
 	let dx=Math.ceil(x)-view.x, dy=Math.ceil(y)-view.y, scaledCellWidth=cellWidth*view.z;
-	let backgroundState = GRID.backgroundState;
 
 	//clear screen
 	ctx.clearRect(0,0,canvasWidth,canvasHeight);
 
 	if(darkMode){
-		ctx.fillStyle="#fff";
+		ctx.fillStyle="#FFFFFF";
 	}else{
-		ctx.fillStyle="#000";
+		ctx.fillStyle="#000000";
 	}
 	
+	//TODO: fix rendering B0 rules with strobing enabled
 	//draw for the pattern
 	for(let i = 0; i < pattern.length; i++){
 		for (let j = 0; j < pattern[0].length; j++) {
-			if(backgroundState!==pattern[i][j]){
+			if(GRID.backgroundState!==pattern[i][j]){
 				ctx.fillStyle=getColor(pattern[i][j]);
 				ctx.fillRect((i-30+30/view.z+dx)*scaledCellWidth,(j-20+20/view.z+dy)*scaledCellWidth,scaledCellWidth,view.z*cellWidth);
 			}
@@ -2627,7 +2175,7 @@ function renderPattern(pattern, x, y){
 function render(){
 	countRenders++;
 	renderPattern(visiblePattern, visiblePatternLocation.x, visiblePatternLocation.y);
-	let x=view.x%1, y=view.y%1, color=0, scaledCellWidth=cellWidth*view.z;
+	let x=view.x%1, y=view.y%1, scaledCellWidth=cellWidth*view.z;
 
 	ctx.font = "20px Arial";
 
@@ -2652,26 +2200,29 @@ function render(){
 		// }
 	}
 
-	if(drawnCells.length>0&&drawnState!==-1&&isElementCheckedById("debugVisuals")===false){
-		for (let i = 0; i < drawnCells.length; i++) {
-			ctx.fillStyle=getColor(drawnState);
-			ctx.fillRect(canvasWidth*0.5-((view.x-drawnCells[i].x)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-drawnCells[i].y)*cellWidth+canvasHeight*0.5)*view.z,view.z*cellWidth,view.z*cellWidth);
-		}
+	if(drawnCells.length>0&&isElementCheckedById("debugVisuals")===false){
+		drawnCells.forEach((element) => {
+			for (let i = 0; i < element.length; i++) {
+				ctx.fillStyle=getColor(element[i].newState);
+				ctx.fillRect(canvasWidth*0.5-((view.x-element[i].x)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-element[i].y)*cellWidth+canvasHeight*0.5)*view.z,view.z*cellWidth,view.z*cellWidth);
+			}
+		});
 	}
 
+	ctx.globalAlpha=0.25;
 	//draw selected area
 	if(selectArea.isActive===true){
 		if(editMode===2&&edgeBeingDragged!==0){
 			if(darkMode){
-				ctx.fillStyle="#3334";
+				ctx.fillStyle="#555555";
 			}else{
-				ctx.fillStyle="#9994";
+				ctx.fillStyle="#999999";
 			}
 		}else{
 			if(darkMode){
-				ctx.fillStyle="#29292944";
+				ctx.fillStyle="#333333";
 			}else{
-				ctx.fillStyle="#ccc4";
+				ctx.fillStyle="#CCCCCC";
 			}
 		}
 		ctx.fillRect(canvasWidth*0.5-((view.x-selectArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-selectArea.top)*cellWidth+canvasHeight*0.5)*view.z,(selectArea.right-selectArea.left)*scaledCellWidth-1,(selectArea.bottom-selectArea.top)*scaledCellWidth-1);
@@ -2679,19 +2230,11 @@ function render(){
 
 	//draw paste
 	if(pasteArea.isActive&&clipboard[activeClipboard].pattern[0]){
-		if(editMode===2&&edgeBeingDragged!==0){
-			if(darkMode){
-				ctx.fillStyle="#555";
-			}else{
-				ctx.fillStyle="#999";
-			}
-		}else{
-			if(darkMode){
-				ctx.fillStyle="#333";
-			}else{
-				ctx.fillStyle="#ccc";
-			}
-		}
+    if(darkMode){
+      ctx.fillStyle="#333333";
+    }else{
+      ctx.fillStyle="#CCCCCC";
+    }
 		ctx.fillRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,clipboard[activeClipboard].pattern.length*scaledCellWidth-1,clipboard[activeClipboard].pattern[0].length*scaledCellWidth-1);
 	}
 
@@ -2723,7 +2266,7 @@ function render(){
 	if(isElementCheckedById("gridLines")===true){
 		//draw a grid
 		if(darkMode){
-			ctx.strokeStyle="#999";
+			ctx.strokeStyle="#999999";
 		}else{
 			ctx.strokeStyle="#000000";
 		}
@@ -2749,17 +2292,17 @@ function render(){
 			if(markers[i].activeState!==0){
 				if(markers[i].activeState===1){
 					if(darkMode){
-						ctx.strokeStyle="#888";
+						ctx.strokeStyle="#888888";
 					}else{
-						ctx.strokeStyle="#999";
+						ctx.strokeStyle="#999999";
 					}
 				}else if(markers[i].activeState===2){
 					if(darkMode){
-						ctx.strokeStyle="#bbb";
-						ctx.fillStyle="#bbb";
+						ctx.strokeStyle="#BBBBBB";
+						ctx.fillStyle="#BBBBBB";
 					}else{
-						ctx.strokeStyle="#999";
-						ctx.fillStyle="#999";
+						ctx.strokeStyle="#999999";
+						ctx.fillStyle="#999999";
 					}
 					ctx.lineWidth=1;
 					ctx.fillText((i+1),canvasWidth*0.5+1*view.z-((view.x-markers[i].left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-6*view.z-((view.y-markers[i].top)*cellWidth+canvasHeight*0.5)*view.z,(markers[i].right-markers[i].left)*scaledCellWidth-1);
@@ -2774,24 +2317,23 @@ function render(){
 	//draw a rectangle around the right-selectArea.
 	if(selectArea.isActive===true){
 		ctx.lineWidth=3*view.z;
-		ctx.strokeStyle="#666";
+		ctx.strokeStyle="#666666";
 		ctx.strokeRect(canvasWidth*0.5-((view.x-selectArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-selectArea.top)*cellWidth+canvasHeight*0.5)*view.z,(selectArea.right-selectArea.left)*scaledCellWidth-1,(selectArea.bottom-selectArea.top)*scaledCellWidth-1);
 	}
 	//draw a rectangle around the pattern to be pasted.
 	if(pasteArea.isActive&&clipboard[activeClipboard].pattern[0]){
 		ctx.lineWidth=3*view.z;
-		ctx.strokeStyle="#666";
+		ctx.strokeStyle="#666666";
 		ctx.strokeRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,clipboard[activeClipboard].pattern.length*scaledCellWidth-1,clipboard[activeClipboard].pattern[0].length*scaledCellWidth-1);
 	}
 
 	//draw the border of the finite grids
 	if(GRID.type!==0){
-		console.log(GRID.finiteArea);
 		ctx.lineWidth=8*view.z;
 		if(darkMode){
-			ctx.strokeStyle="#888";
+			ctx.strokeStyle="#888888";
 		}else{
-			ctx.strokeStyle="#999";
+			ctx.strokeStyle="#999999";
 		}
 		ctx.strokeRect(canvasWidth*0.5-((view.x-GRID.finiteArea.newLeft)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-GRID.finiteArea.newTop)*cellWidth+canvasHeight*0.5)*view.z,(GRID.finiteArea.newRight-GRID.finiteArea.newLeft)*scaledCellWidth-1,(GRID.finiteArea.newBottom-GRID.finiteArea.newTop)*scaledCellWidth-1);
 	}
@@ -2807,6 +2349,7 @@ function render(){
 	}
 }
 
+//TODO: replace 600:400 canvas with actual canvas dimensions and variable cell width
 function scaleCanvas(){
 	windowWidth=window.innerWidth || document.documentElement.clientWidth;
 	windowHeight=window.innerHeight || document.documentElement.clientHeight;
@@ -2835,7 +2378,9 @@ function resetClipboard(){
 		activeClipboard=parseInt(document.getElementById("copyMenu").previousElementSibling.innerText);
 }
 
-function uncheckSiblings(self) {
+function submitFormat(self) {
+  console.log(self.id);
+  worker.postMessage({type: "exportFormat", value:self.checked?self.id:""});
 	[...self.parentElement.children].forEach(element=>{
 		if(element!==self)element.checked=false
 	});
@@ -2852,8 +2397,8 @@ function importRLE(rleText){
 			pasteArea.isActive=true;
 			pasteArea.left=-Math.ceil(response.length/2);
 			pasteArea.top=-Math.ceil(response[0].length/2);
-			//TODO: rewrite
-			// setActionMenu();
+      render();
+			setActionMenu();
 		}
 	});
 }

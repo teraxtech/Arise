@@ -73,6 +73,8 @@ var
 	drawnState=-1,
 	//list of empty nodes with different states for B0.
 	emptyNodes=[],
+  //format for rules to be exported in, where ""=whatever was input
+  exportFormat="BSG",
 	//state of the grid
 	GRID={
 		//which kind of grid is being used
@@ -105,6 +107,8 @@ var
 	rule,
 	//number of nodes in the rule, rule family(INT, Generations, History), color of each state, rulestring
 	ruleMetadata={size:0, family:"INT", color:[], string:"B3/S23"},
+  //speed of the simulation 1-100
+  simulationSpeed = 100;
 	//number of genertions updated
 	stepSize=1,
 	//current view of the user
@@ -129,7 +133,12 @@ function distance(num1, num2){
 }
 
 function new2dArray(width, height, fill=0){
-	return new Array(width).fill(null).map(()=>Array(height).fill(fill));
+	try{
+		return new Array(width).fill(null).map(()=>Array(height).fill(fill));
+	}catch(error){
+		console.log(width, height, error);
+		return [[]];
+	}
 }
 
 function calculateKey(node){
@@ -386,6 +395,8 @@ function readSubpattern(pattern,top,right,bottom,left){
 }
 
 function readPatternFromTree(tree, topBorder,rightBorder,bottomBorder,leftBorder, knownPortion=[], knownPortionX, knownPortionY){
+  if(rightBorder-leftBorder<0)throw new Error("trying to read negative width");
+  if(bottomBorder-topBorder<0)throw new Error("trying to read negative height");
 	let pattern = new2dArray(rightBorder-leftBorder, bottomBorder-topBorder, GRID.backgroundState);
 	let stack = new Array(tree.head.distance.toString(2).length);
 	stack[0]={node:tree.head, direction:0, dist: tree.head.distance*0.25, x:-leftBorder-0.5,y:-topBorder-0.5};
@@ -395,7 +406,7 @@ function readPatternFromTree(tree, topBorder,rightBorder,bottomBorder,leftBorder
 			console.log(`number of nodes exceeds ${Number.MAX_SAFE_INTEGER}.`);
 		}
 		// console.log(stack[depth].direction, depth, stack[depth].x, stack[depth].y, visitedNodes[depth].distance/2, stack[depth].node.value);
-		if(stack[depth].node.child[stack[depth].direction]===null){
+		if(stack[depth].node.distance===1){
 			pattern[stack[depth].x][stack[depth].y]=stack[depth].node.value;
 			stack[--depth].direction++;
 		}else if(stack[depth].direction<4){
@@ -436,7 +447,7 @@ function readPattern(topBorder,rightBorder,bottomBorder,leftBorder){
 		for(let i=0;i<pattern.length;i++){
 			pattern[i]=new Array(bottomBorder-topBorder);
 			for(let j=0;j<pattern[i].length;j++){
-				if(j+topBorder>=finiteGridTop-finiteGridMargin&&i+leftBorder<finiteGridLeft+finiteGrid.length+finiteGridMargin&&j+topBorder<finiteGridTop+finiteGrid[0].length+finiteGridMargin&&i+leftBorder>=finiteGridLeft-finiteGridMargin){
+				if(j+topBorder>=finiteGridTop-finiteGridMargin&&i+rightBorder<finiteGridLeft+finiteGrid.length+finiteGridMargin&&j+topBorder<finiteGridTop+finiteGrid[0].length+finiteGridMargin&&i+leftBorder>=finiteGridLeft-finiteGridMargin){
 					pattern[i][j]=finiteGrid[i-finiteGridLeft+finiteGridMargin+leftBorder][j-finiteGridTop+finiteGridMargin+topBorder];
 				}else{
 					pattern[i][j]=arguments[4]?0:GRID.backgroundState;
@@ -926,7 +937,6 @@ function widenTree(area,tree=GRID.head){
 			console.log(`maxDepth of ${maxDepth} reached.`);
 			break;
 		}
-		console.log("widened to ", newTree.distance * 2, " from ", newTree.distance, " to fit ", area);
 		if(-newTree.distance>4*area.top||newTree.distance<=4*area.right||
 			newTree.distance<=4*area.bottom||-newTree.distance>4*area.left){
 			newTree=doubleSize(newTree);
@@ -968,10 +978,10 @@ function reset(pause=true){
 
 function writePatternAndSave(xPosition,yPosition,pattern){
 	if(!pattern||pattern.length===0)return currentEvent;
+	const previousPattern=readPattern(yPosition,xPosition+pattern.length,yPosition+pattern[0].length,xPosition,GRID);
 	
 	//if a grid other than the "main" grid is passed as a 4th argument
 	if(GRID.type===0){
-	const previousPattern=readPattern(yPosition,xPosition+pattern.length,yPosition+pattern[0].length,xPosition,GRID);
 		//write to the provided infinte grid
 		GRID.head=widenTree({top:yPosition,right:xPosition+pattern.length,bottom:yPosition+pattern[0].length,left:xPosition},GRID.head);
 		GRID.head=writePatternToGrid(xPosition,yPosition, pattern, GRID.head);
@@ -986,10 +996,12 @@ function writePatternAndSave(xPosition,yPosition,pattern){
 				}
 			}
 		}*/
+    console.log(pattern);
 		for (let i = 0; i < pattern.length; i++) {
 			for (let j = 0; j < pattern[0].length; j++) {
-				if(j+yPosition>=GRID.finiteArea.top-GRID.finiteArea.margin&&i+xPosition<GRID.finiteArea.right+GRID.finiteArea.margin&&j+yPosition<GRID.finiteArea.bottom+GRID.finiteArea.margin&&i+xPosition>=GRID.finiteArea.left-GRID.finiteArea.margin){
-					GRID.finiteArray[i-GRID.finiteArea.left+GRID.finiteArea.margin+xPosition][j-GRID.finiteArea.top+GRID.finiteArea.margin+yPosition]=pattern[i][j];
+				if(j+yPosition>=GRID.finiteArea.top&&i+xPosition<GRID.finiteArea.right-2*GRID.finiteArea.margin&&j+yPosition<GRID.finiteArea.bottom-2*GRID.finiteArea.margin&&i+xPosition>=GRID.finiteArea.left){
+          console.log(i,j);
+					GRID.finiteArray[i+xPosition-GRID.finiteArea.left+GRID.finiteArea.margin][j+yPosition-GRID.finiteArea.top+GRID.finiteArea.margin]=pattern[i][j];
 					somethingChanged=true;
 				}
 			}
@@ -1020,20 +1032,25 @@ function writePattern(xPosition,yPosition,pattern,objectWithGrid){
 	}
 }
 
-
 function setEvent(gridEvent){
 	if(!("type" in gridEvent)){
 		setEvent(gridEvent.parent);
-		if("draw" in gridEvent){
-			for(let i=0;i<gridEvent.draw.length;i++){
-				console.log(GRID.head.length);
-				writePatternToGrid(gridEvent.draw[i].x,gridEvent.draw[i].y,[[gridEvent.draw[i].newState]], GRID);
-			}
-			if(socket&&resetEvent===null)socket.emit("draw",Date.now(),gridEvent.draw);
-		}else if("paste" in gridEvent){
-			writePatternToGrid(...gridEvent.paste.newPatt, GRID);
-			if(socket&&resetEvent===null)socket.emit("paste",Date.now(),gridEvent.paste);
-		}
+    try {
+      if("draw" in gridEvent){
+        for(let i=0;i<gridEvent.draw.length;i++){
+          writePattern(gridEvent.draw[i].x,gridEvent.draw[i].y,[[gridEvent.draw[i].newState]], GRID);
+        }
+        //TODO: rewrite
+        // if(socket&&resetEvent===null)socket.emit("draw",Date.now(),gridEvent.draw);
+      }else if("paste" in gridEvent){
+        writePattern(...gridEvent.paste.newPatt, GRID);
+        //TODO: rewrite
+        // if(socket&&resetEvent===null)socket.emit("paste",Date.now(),gridEvent.paste);
+      }
+    } catch (error) {
+      console.log("Warning: Invalid Event Data within: ", gridEvent);
+      throw error;
+    }
 	}else{
 		if("generation" in gridEvent){
 			genCount=gridEvent.generation;
@@ -1073,20 +1090,22 @@ function setEvent(gridEvent){
 
 function undo(){
 	if(currentEvent.parent!==null){
-		// if("draw" in currentEvent){
-		// 	for(let i=0;i<currentEvent.draw.length;i++){
-		// 		writePattern(currentEvent.draw[i].x,currentEvent.draw[i].y,[[currentEvent.draw[i].oldState]], GRID);
-		// 	}
-		// 	if(socket&&resetEvent===null)socket.emit("undoDraw",Date.now(),currentEvent.draw);
-		// 	currentEvent=currentEvent.parent;
-		// }else if("paste" in currentEvent){
-		// 	writePattern(...currentEvent.paste.oldPatt, GRID);
-		//
-		// 	if(socket&&resetEvent===null)socket.emit("undoPaste",Date.now(),currentEvent.paste);
-		// 	currentEvent=currentEvent.parent;
-		// }else{
+    if("draw" in currentEvent){
+    	for(let i=0;i<currentEvent.draw.length;i++){
+    		writePattern(currentEvent.draw[i].x,currentEvent.draw[i].y,[[currentEvent.draw[i].oldState]], GRID);
+    	}
+      //TODO: rewrite
+    	// if(socket&&resetEvent===null)socket.emit("undoDraw",Date.now(),currentEvent.draw);
+    	currentEvent=currentEvent.parent;
+    }else if("paste" in currentEvent){
+    	writePattern(...currentEvent.paste.oldPatt, GRID);
+
+      //TODO: rewrite
+    	// if(socket&&resetEvent===null)socket.emit("undoPaste",Date.now(),currentEvent.paste);
+    	currentEvent=currentEvent.parent;
+    }else{
 			setEvent(currentEvent.parent);
-		// }
+		}
 		//compare parents because the reset event may be a different event with identical values
 		if(resetEvent!==null&&resetEvent.parent===currentEvent.parent)resetEvent=null;
 	}
@@ -1101,12 +1120,14 @@ function redo(){
 			for(let i=0;i<currentEvent.draw.length;i++){
 				writePattern(currentEvent.draw[i].x,currentEvent.draw[i].y,[[currentEvent.draw[i].newState]], GRID);
 			}
-			if(socket&&resetEvent===null)socket.emit("draw",Date.now(),currentEvent.draw);
+      //TODO: rewrite
+			// if(socket&&resetEvent===null)socket.emit("draw",Date.now(),currentEvent.draw);
 		}else if("paste" in currentEvent.child){
 			currentEvent=currentEvent.child;
 			writePattern(...currentEvent.paste.newPatt, GRID);
 
-			if(socket&&resetEvent===null)socket.emit("paste",Date.now(),currentEvent.paste);
+			//TODO: fix
+			// if(socket&&resetEvent===null)socket.emit("paste",Date.now(),currentEvent.paste);
 		}else{
 			setEvent(currentEvent.child);
 		}
@@ -1138,6 +1159,7 @@ function importRLE(rleText){
 		if(parsedRLE.type===-1)return -1;
 		let left=-Math.ceil((parsedRLE.xWrap|parsedRLE.width|parsedRLE.pattern.length)/2),
 				top=-Math.ceil((parsedRLE.yWrap|parsedRLE.height|parsedRLE.pattern[0].length)/2);
+    console.log(top, left);
 
 		if(GRID.head.value===0&GRID.type===0){
 			let previousPattern=new Array(parsedRLE.pattern.length);
@@ -1199,7 +1221,7 @@ function rleToPattern(input,width,height){
 	//check for any invalid chars in rle
 	let unsupportedChars = input.match(/(?![0-9A-Z\.bo\$!])./g);
 	if(unsupportedChars!==null){
-		alert("Unsupported Character In Rule: "+unsupportedChars);
+    postMessage({type: "alert", value:"Unsupported Character In Rule: "+unsupportedChars});
 		return array;
 	}
 
@@ -1241,8 +1263,8 @@ function rleToPattern(input,width,height){
 }
 
 function patternToRLE(pattern){
-	if(pattern.length===0)return `x = 0, y = 0, rule = ${exportRulestring()}\n!`;
-	let RLE=`x = ${pattern.length}, y = ${pattern[0].length}, rule = ${exportRulestring()}`, numberOfAdjacentLetters=0;
+	if(pattern.length===0)return `x = 0, y = 0, rule = ${exportRulestring(exportFormat)}\n!`;
+	let RLE=`x = ${pattern.length}, y = ${pattern[0].length}, rule = ${exportRulestring(exportFormat)}`, numberOfAdjacentLetters=0;
 	if(GRID.type===1)RLE+=`:P${pattern.length},${pattern[0].length}`;
 	if(GRID.type===2)RLE+=`:T${pattern.length},${pattern[0].length}`;
 	RLE+="\n";
@@ -1310,6 +1332,114 @@ function patternToRLE(pattern){
 	return RLE.join("")+"!";
 }
 
+function patternToBaseN(pattern){
+	//(g) is the number of states in the rule
+	//(result) accumulates the compressed pattern encoded as a base-n encoding, where n is the largest power of g <=52
+	//(stack) is a base (g) number, which holds information about a vertical "block" of cells
+	//each block contains the largest number of cells with <=64 total states(eg. 3 cells in g4b2s345)
+	let result="", stack=0, g=rule.length;
+	if(pattern.length===0)return result;
+	const blockSize=(52).toString(g).length-1;
+	const lookupTable="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+	for(let i=0;i<pattern[0].length;i+=blockSize){
+		for(let j=0;j<pattern.length;j++){
+			for(let k=0;k<blockSize&&i+k<pattern[0].length;k++){
+				//add the current cell state as the most significant digit in the stack
+				stack+=pattern[j][i+k]*(g**k);
+			}
+			//append (stack) as a base64 digit
+			result+=lookupTable[stack];
+			stack=0;
+		}
+	}
+	return result;
+}
+
+function baseNToPattern(width,height,compressedString){
+	//(pattern) is an empty (width) by (height) 2d array which will store the uncompressed pattern
+	//(g) is the number of states in the rule
+	//(stack) is a base (g) number, which holds information about a vertical "block" of cells
+	//each block contains the largest number of cells with <=64 total states(eg. 3 cells in g4b2s345)
+	//
+	let pattern=new Array(width), stack=0, g=rule.length, strIndex=0;
+	for(let i=0;i<width;i++){
+		pattern[i]=new Array(height);
+	}
+	const blockSize=(52).toString(g).length-1;
+	for(let i=0;i<height;i+=blockSize){
+		for(let j=0;j<width;j++){
+			if(strIndex>=compressedString.length){
+				console.log("baseN parseing error: string too long for dimensions");
+				return pattern;
+			}
+			stack="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".indexOf(compressedString[strIndex]);
+			strIndex++;
+			for(let k=0;k<blockSize&&i+k<height;k++){
+				pattern[j][i+k]=stack%g;
+				stack=Math.floor(stack/g);
+			}
+		}
+	}
+	return pattern;
+}
+
+function LZ77ToBaseN(string){
+	let result="",number=0,offset=0;
+	for(let i=0;i<string.length&&i<maxDepth;i++){
+		//write any letters directly to the result
+		if(isNaN(string[i])){
+			if(string[i]!=="~")result+=string[i];
+		}else{
+			//add digits to the number buffer
+			number=10*number+parseInt(string[i]);
+			//if the number is finished
+			if(isNaN(string[i+1])){
+				//use the number as the offset if there is a hyphen
+				if(string[i+1]==="~"){
+					offset=number;
+				//use the number to count out the repeated letters otherwise
+				}else{
+					for(let j=0;j<number;j++){
+						result+=result[result.length-offset-1];
+					}
+					offset=0;
+				}
+				number=0;
+			}
+		}
+	}
+	return result;
+}
+
+function baseNToLZ77(string){
+	let result="";
+	for(let i=0;i<string.length;i++){
+		let offset=0,repeat=1;
+		for(let j=0;j<i+1;j++){
+			//search the previous j characters
+			let stack=string.slice(i-j,i+1);
+			for(let k=0;;k++){
+				//find as how far the previous j characters repeat
+				if(i+k+1>=string.length||stack[k%stack.length]!==string[i+k+1]){
+					if(k>repeat&&k>j){
+						offset=j;
+						repeat=k;
+					}
+					break;
+				}
+			}
+		}
+		result+=string[i];
+		if(repeat>1&&offset===0||repeat>repeat.toString().length+offset.toString().length+1){
+			if(offset!==0)
+				result+=`${offset}~`;
+			result+=`${repeat}`;
+			i+=repeat;
+		}
+	}
+	return result;
+}
+
 function exportPattern(){
 	switch(GRID.type){
 	case 0:
@@ -1366,15 +1496,16 @@ function importPattern(pattern,type,top,left,width=pattern.length,height=pattern
 				GRID.head=getEmptyNode(8);
 				GRID.head=widenTree({top:top, right:left+width, bottom:top+height, left:left});
 				console.log(top+" "+left);
-				GRID.head=writePatternToGrid(top, left, pattern, GRID.head);
+				GRID.head=writePatternToGrid(left, top, pattern, GRID.head);
 			}
 	}
 		console.log("done?");
 	if(GRID.type===1||GRID.type===2){
 		GRID.finiteArea.top =top;
-		GRID.finiteArea.right =left + width;
-		GRID.finiteArea.bottom =top + height;
+		GRID.finiteArea.right =left + width + GRID.finiteArea.margin*2;
+		GRID.finiteArea.bottom =top + height + GRID.finiteArea.margin*2;
 		GRID.finiteArea.left =left;
+    console.log(width, height, GRID.finiteArea);
 
 		GRID.finiteArray = new2dArray(width+GRID.finiteArea.margin*2, height+GRID.finiteArea.margin*2);
 		console.log("write Pattern");
@@ -1476,10 +1607,11 @@ function setRule(ruleText){
 		LifeHistory:"B3/S23History",
 		HighLife:"B36/S23",
 		HighLifeHistory:"B36/S23History"};
-	ruleMetadata.string=ruleText;
-	if(alias[ruleMetadata.string]){
+	if(alias[ruleText]){
+    ruleMetadata.string=ruleText;
 		parseRulestring(alias[ruleMetadata.string]);
 	}else{
+    ruleMetadata.string=clean(ruleText);
 		parseRulestring(ruleMetadata.string);
 	}
 	resetHashtable();
@@ -1570,49 +1702,47 @@ function getTransition(stateArray,stateCount,ruleText){
 
 //parse Isotropic Non-Totalistic Generations rules
 function parseRulestring(ruleText){
-
-	if(!ruleText)ruleText="B3/S23";
-
-	//convert rulestring to "B#/S#" or "B#/S#/G#" format
-	ruleText=clean(ruleText);
-
+  console.log(ruleText);
 	ruleMetadata.size=0;
 	ruleMetadata.numberOfStates=2;
 	if(ruleText.split("/").length===3)ruleMetadata.numberOfStates=parseInt(ruleText.split("/")[2].slice(1));
 
 	if(/.+(History)$/g.test(ruleText)){
 		ruleMetadata.family="History";
-		ruleMetadata.color=["#303030","#00FF00","#0000A0","#FFD8FF","#FF0000","#FFFF00","#606060"];
+		ruleMetadata.color=[["#303030","#00FF00","#0000A0","#FFD8FF","#FF0000","#FFFF00","#606060"]];
 		ruleMetadata.aliveState=[1,1,1,3,3,5,6];
 		ruleMetadata.deadState=[0,2,2,4,4,4,6];
 		ruleMetadata.forceDeath=[false,false,false,false,false,false,true];
 		ruleMetadata.forceLife=[false,false,false,false,false,false,false];
 		ruleMetadata.numberOfStates=7;
+    console.log("History");
 	}else if(/.+(Super)$/g.test(ruleText)){
 		ruleMetadata.family="Super";
-		ruleMetadata.color=["#303030","#00FF00","#0000A0","#FFD8FF","#FF0000","#FFFF00","#606060"];
+		ruleMetadata.color=[["#303030","#00FF00","#0000A0","#FFD8FF","#FF0000","#FFFF00","#606060"]];
 		ruleMetadata.aliveState=[1,1,1,3,3,5,6];
 		ruleMetadata.deadState=[0,2,2,4,4,4,6];
 		ruleMetadata.forceDeath=[false,false,false,false,false,false,true];
 		ruleMetadata.forceLife=[false,false,false,false,false,false,false];
 		ruleMetadata.numberOfStates=20;
+    console.log("Super");
 	}else if(ruleMetadata.numberOfStates>2){
 		ruleMetadata.family="Generations";
-		ruleMetadata.color=[];
+		ruleMetadata.color=[[]];
 		ruleMetadata.aliveState=[1,1];
 		ruleMetadata.deadState=[0,2];
 		ruleMetadata.forceDeath=[false,false];
 		ruleMetadata.forceLife=[false,false];
+    console.log("Generations");
 	}else{
 		ruleMetadata.family="INT";
-		ruleMetadata.color=["#222", "#f1f1f1"];
+		ruleMetadata.color=[[]];
 		ruleMetadata.aliveState=[1,1];
 		ruleMetadata.deadState=[0,0];
 		ruleMetadata.forceDeath=[false,false];
 		ruleMetadata.forceLife=[false,false];
+    console.log("INT");
 	}
 
-	//if(ruleMetadata.color[0])canvas.style.backgroundColor=ruleMetadata.color[0];
 	rule=generateTree([],0,ruleMetadata.numberOfStates,ruleText.replace(/(Super)|(History)$/g,"").split("/").map(substring => substring.split("")));
 	postMessage({type:"ruleMetadata",ruleMetadata:ruleMetadata});
 	
@@ -1620,29 +1750,14 @@ function parseRulestring(ruleText){
 	postMessage({type:"setDrawMenu"});
 }
 
-function exportRulestring(){
-	// if(document.getElementById("BSG").checked){
-		if(rule.length===2){
-			return clean(ruleMetadata.string).replace(/g[0-9]*/g,"");
-		}else{
-			return clean(ruleMetadata.string);
-		}
-	// }
-	// if(document.getElementById("gbs").checked){
-	// 	if(rule.length===2){
-	// 		return clean(rulestring).replace(/B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g,"b$1s$2");
-	// 	}else{
-	// 		return clean(rulestring).replace(/B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g,"g$3b$1s$2");
-	// 	}
-	// }
-	// if(document.getElementById("sbg").checked){
-	// 	if(rule.length===2){
-	// 		return clean(rulestring).replace(/B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g,"$2/$1");
-	// 	}else{
-	// 		return clean(rulestring).replace(/B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g,"$2/$1/$3");
-	// 	}
-	// }
-	return ruleMetadata.string;
+function exportRulestring(format){
+  const hasTwoStates = ruleMetadata.numberOfStates===2;
+  const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g;
+  switch(format){
+    case "BSG": return ruleMetadata.string.replace(regex, hasTwoStates?"B$2/S$2":"B$2/S$1/G$3");
+    case "gbs": return ruleMetadata.string.replace(regex, hasTwoStates?"b$1s$2":"g$3b$1s$2");
+    case "sbg": return ruleMetadata.string.replace(regex, hasTwoStates?"$2/$1":"$2/$1/$3");
+  }
 }
 
 function clean(dirtyString){
@@ -1653,10 +1768,10 @@ function clean(dirtyString){
 	}
 	let unsupportedChars = testString.match(/(?![BSGbsg\/\-0-8aceijknqrtwyz])./)|[];
 	if(unsupportedChars.length==1){
-		alert("Unsupported Character In Rule: "+unsupportedChars);
+    postMessage({type: "alert", value:"Unsupported Character In Rule: "+unsupportedChars});
 		return dirtyString;
 	}else if(unsupportedChars.length>=2){
-		alert("Unsupported Characters In Rule: "+unsupportedChars);
+    postMessage({type: "alert", value:"Unsupported Characters In Rule: "+unsupportedChars});
 		return dirtyString;
 	}
 	const table=[["-"],
@@ -1670,35 +1785,53 @@ function clean(dirtyString){
 	             ["-"]];
 	//transcribe the rulestring into B#/S# or B#/S#/G# format
 	const suffix=dirtyString.match(/(History)$/g);
-	let ruleSections=dirtyString
-		.replace(/(History)$/g,"")//B/S/GHistory -> B/S/G
-		.replace(/[bsg]/g,match => match.toUpperCase())//b/s/g -> B/S/G
-		.split(/\/|(?=[BSG])/);//#/#/# -> [#,#,#], B/S/G -> [B,S,G], or GBS -> [G,B,S]
+  try{
+    let ruleSections=dirtyString
+      .replace(/(History)$/g,"")// B/S/GHistory -> B/S/G
+      .replace(/[bsg]/g,match => match.toUpperCase())// b/s/g -> B/S/G
+      .split(/\/|(?=[BSG])/);// #/#/# -> [#,#,#], B/S/G -> [B,S,G], or GBS -> [G,B,S]
 
-	if(ruleSections.length===1){
-		ruleSections[1]=ruleSections[0][0]==="B"?"S":"B";//[B] -> [B,S], or [S] -> [S,B]
-	}
-	//check if either rule section starts with a number
-	if(/[0123456789]/g.test(ruleSections[0][0]+ruleSections[1][0])){
-		//Prepend a "B", "S", or "G" to each section
-		ruleSections=ruleSections.map((element,index) => "SBG"[index]+element);//[#,#,#] -> [B#,S#,G#]
-	}else if(ruleSections[2]&&ruleSections[2][0]!=="G")
-		//Prepend a G to section 2 if it is missing
-		ruleSections[2]="G"+ruleSections[2];//[B,S,#] -> [B,S,G#]
-	ruleSections=ruleSections.sort((a,b) => ["B","S","G"].indexOf(a[0])-["B","S","G"].indexOf(b[0]));//[G,B,S] -> [B,S,G]
+    if(ruleSections.length===1){
+      ruleSections[1]=ruleSections[0][0]==="B"?"S":"B";// [B] -> [B,S], or [S] -> [S,B]
+    }
+    //check if either rule section starts with a number
+    if(/[0123456789]/g.test(ruleSections[0][0]+ruleSections[1][0])){
+      //Prepend a "B", "S", or "G" to each section
+      ruleSections=ruleSections.map((element,index) => "SBG"[index]+element);// [#,#,#] -> [B#,S#,G#]
+    }else if(ruleSections[2]&&ruleSections[2][0]!=="G"){
+      //Prepend a G to section 2 if it is missing
+      ruleSections[2]="G"+ruleSections[2];// [B,S,#]] -> [B,S,G#]
+      postMessage({type: "alert", value:"Warning: a \"G\" was inserted into the rulestring to convert it into B/S/G form."});
+    }
+    ruleSections=ruleSections.sort((a,b) => "BSG".indexOf(a[0])-"BSG".indexOf(b[0]));// [G,B,S] -> [B,S,G]
+    if(ruleSections[1][0]==="G"){
+      if(ruleSections[0][0]==="B"){
+        ruleSections.splice(1, 0, "S");
+        postMessage({type: "alert", value:"Warning: an \"S\" was inserted into the rulestring to convert it into B/S/G form."});
+      }
+      if(ruleSections[0][0]==="S"){
+        ruleSections.splice(0, 0, "B");
+        postMessage({type: "alert", value:"Warning: a \"B\" was inserted into the rulestring to convert it into B/S/G form."});
+      }
+    }
 
-	//sort, shorten, and filter the transitions into INT format
-	for(let i=0;i<ruleSections.length||i<2;i++){
-		ruleSections[i]=ruleSections[i].split(/(?=[0-8])|(?<=\/)/g).map(element => {
-			if(/[BSG]/g.test(element)||/4[aceijknqrtwyz]{7}(?=[0-8]|\/|$)/g.test(element))
-				return element.split("").sort().join("");
-			const n=parseInt(element[0]);
-			const transitions=[...new Set(element.slice(1).split(""))];
-			return n+table[n].filter(letter => (transitions.indexOf(letter)===-1)===(transitions.length>=table[n].length/2)).join("");//n+stack.join("");
-		});
-		ruleSections[i]=ruleSections[i].join("").replace(/-(?=[0-8]|\/|$)/g,"");
-	}
-	return ruleSections.join("/")+(suffix??"");
+    //sort, shorten, and filter the transitions into INT format
+    for(let i=0;i<ruleSections.length||i<2;i++){
+      console.log(ruleSections);
+      ruleSections[i]=ruleSections[i].split(/(?=[0-8])|(?<=\/)/g).map(element => {
+        if(/[BSG]/g.test(element)||/4[aceijknqrtwyz]{7}(?=[0-8]|\/|$)/g.test(element))
+          return element.split("").sort().join("");
+        const n=parseInt(element[0]);
+        const transitions=[...new Set(element.slice(1).split(""))];
+        return n+table[n].filter(letter => (transitions.indexOf(letter)===-1)===(transitions.length>=table[n].length/2)).join("");//n+stack.join("");
+      });
+      ruleSections[i]=ruleSections[i].join("").replace(/-(?=[0-8]|\/|$)/g,"");
+    }
+    return ruleSections.join("/")+(suffix??"");
+  }catch (error){
+    postMessage({type: "alert", value:"Unable to parse rule \"" + dirtyString + "\". \nThis program supports rulestrings in B/S, S/B, #/#, B#/S#/G#, or #/#/# format with an optional \"History\" suffix. \nMaybe there's a missing character?"});
+    return "B3/S23";
+  }
 }
 
 var runningSimulation = false;
@@ -1706,52 +1839,42 @@ var rendering = false;
 onmessage = (e) => {
 	let area;
 	switch(e.data.type){
-		case "setRule":
-			console.log("rule set to: ", e.data.args);
-			setRule(e.data.args);
-			break;
+		case "setRule": setRule(e.data.args); break;
+    case "setSpeed": simulationSpeed = e.data.value; console.log(simulationSpeed); break;
+    case "exportFormat": exportFormat = e.data.value; break;
 		case "writeCell":
-			expandGridToCell(e.data.args[0], e.data.args[1]);//technically redundant, writeCell() does it, might help with draw latency
-			postMessage({id:e.data.id, response:getCellValue(GRID.head, e.data.args[0], e.data.args[1])});
+      console.log("received");
+			if(GRID.type===0){
+        expandGridToCell(e.data.args[0], e.data.args[1]);//technically redundant, writeCell() does it, might help with draw latency
+        postMessage({id:e.data.id, response:{index: e.data.args[2], state:getCellValue(GRID.head, e.data.args[0], e.data.args[1])}});
+      }else{
+        postMessage({id:e.data.id, response:{index: e.data.args[2], state:GRID.finiteArray[e.data.args[0]-GRID.finiteArea.left+GRID.finiteArea.margin][e.data.args[1]-GRID.finiteArea.top+GRID.finiteArea.margin]}});
+      }
 			sendVisibleCells();
 			break;
 		case "drawList":
-			let { id, cellList, state } = e.data;
-			for (let i = 0; i < cellList.length; i++) {
-				cellList[i].oldState = writeCell(cellList[i].x, cellList[i].y, state);
-				cellList[i].newState = state;
-			}
+			let { id, editList} = e.data;
+			//TODO: fix bug where edits before rule is loaded are not saved before the reset point
+      for (cell of editList) cell.oldState = writeCell(cell.x, cell.y, cell.newState);
 			//TODO: maybe change this back into a draw event if you can figure out why it's broken
 			currentEvent=new EventNode(currentEvent, Date.now()/*, "draw", cellList*/);
-			postMessage({id:id, response:cellList});
+			postMessage({id:id, response:editList});
 			sendVisibleCells();
 			break;
-		case "next":
-			stepSimulation();
-			break;
+		case "next": stepSimulation(); break;
 		case "move":
 			view = e.data.view;
 			if(!runningSimulation)sendVisibleCells();
 			break;
-		case "stepSize":
-			stepSize = e.data.args[0];
-			break;
+		case "stepSize": stepSize = e.data.args[0]; break;
 		case "start":
 			runningSimulation = true;
 			loop();
 			break;
-		case "stop":
-			runningSimulation = false;
-			break;
-		case "reset":
-			reset();
-			break;
-		case "undo":
-			undo();
-			break;
-		case "redo":
-			redo();
-			break;
+		case "stop": runningSimulation = false; break;
+		case "reset": reset(); break;
+		case "undo": undo(); break;
+		case "redo": redo(); break;
 		case "import":
 			console.time("import RLE");
 			postMessage({id:e.data.id, response:importRLE(e.data.args)});
@@ -1760,6 +1883,21 @@ onmessage = (e) => {
 			break;
 		case "export":
 			console.time("export RLE"); 
+      let inputPattern=[[]];
+      switch(inputPattern){
+        case "grid":
+        break;
+        case "copyslot":
+        break;
+        case "marker":
+        break;
+      }
+      switch(outputFormat){
+        case "RLE":
+        break;
+        case "LZ77":
+        break;
+      }
 			postMessage({id:e.data.id, response:patternToRLE(readPattern(...e.data.area, GRID))});
 			console.timeEnd("export RLE"); 
 			break;
@@ -1770,12 +1908,60 @@ onmessage = (e) => {
 			console.timeEnd("changing GRID type"); 
 			break;
 		case "copy":
-			area = new Array(4);
+		case "cut":
 			area = [e.data.area.top, e.data.area.right, e.data.area.bottom, e.data.area.left];
-			let pattern = readPattern(...area, GRID);
-			console.log(area);
-			console.log(pattern);
-			postMessage({id:e.data.id, response:pattern});
+			postMessage({id:e.data.id, response:readPattern(...area, GRID)});
+			if(e.data.type==="copy")break;
+		case "clear":
+      let clearedArray = new Array(e.data.area.right-e.data.area.left);
+      for(let i=0; i< clearedArray.length; i++){
+        clearedArray[i]=new Array(e.data.area.bottom-e.data.area.top);
+        clearedArray[i].fill(0);
+      }
+			currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top,clearedArray);
+			sendVisibleCells();
+      break;
+		case "invert":
+		case "increment":
+			let pattern = readPattern(e.data.area.top-1,e.data.area.right+1,e.data.area.bottom+1,e.data.area.left-1, GRID);
+      if(e.data.type==="increment")
+        currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top, iteratePattern(pattern,1,pattern.length-1,pattern[0].length-1,1));
+      if(e.data.type==="invert"){
+        let invertedArea=readPattern(e.data.area.top, e.data.area.right, e.data.area.bottom, e.data.area.left);
+
+        for(let i=0; i<invertedArea.length; i++){
+          for(let j=0; j<invertedArea[0].length; j++){
+            if(invertedArea[i][j]===0||invertedArea[i][j]===1)invertedArea[i][j]=1-invertedArea[i][j];
+          }
+        }
+        currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top, invertedArea);
+        console.log(currentEvent);
+      }
+			sendVisibleCells();
+      break;
+		case "randomize":
+      let randomArray=new Array(e.data.area.right-e.data.area.left);
+      for(let i=0;i<randomArray.length;i++){
+        randomArray[i]=new Array(e.data.area.bottom-e.data.area.top);
+        for(let j=0;j<randomArray[0].length;j++){
+          if(Math.random()<e.data.randomFillPercent){
+            randomArray[i][j]=1;
+          }else{
+            randomArray[i][j]=0;
+          }
+        }
+      }
+
+      currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top, randomArray);
+      sendVisibleCells();
+      break;
+		case "write":
+			console.time("write pattern");
+      // GRID.head = widenTree({top:e.data.args[1], right:e.data.args[0] + e.data.args[2][0].length, bottom:e.data.args[1] + e.data.args[2].length, left:e.data.args[0]});
+			currentEvent=writePatternAndSave(...e.data.args);
+			postMessage({id:e.data.id});
+			console.timeEnd("write pattern");
+			sendVisibleCells();
 			break;
 		case "getBounds":
 			if(GRID.type===0){
@@ -1815,8 +2001,14 @@ function stepSimulation(){
 function loop(){
 
 	if(runningSimulation){
+		// wasReset=false;
+		// for(let i=0;i<document.getElementById("searchOptions").children.length-1;i++){
+		// 	searchAction(document.getElementById("searchOptions").children[i]);
+		// }
+    
 		stepSimulation();
-		requestAnimationFrame(loop);
+    requestAnimationFrame(loop);
+    // setTimeout(loop, 0.1*(100-simulationSpeed)*(100-simulationSpeed));
 	}
 }
 
@@ -1826,10 +2018,11 @@ function sendVisibleCells(){
 		       rightBorder = Math.min(view.x+30+30/view.z+1, GRID.head.distance/4),
 		       bottomBorder = Math.min(view.y+20+20/view.z+1, GRID.head.distance/4),
 		       leftBorder = Math.max(view.x+30-30/view.z-1, -GRID.head.distance/4);
-		const visiblePattern = readPatternFromTree(GRID, Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder));
+		let visiblePattern = [[]];
+    if(rightBorder-leftBorder>0&&bottomBorder-topBorder>0)
+      visiblePattern = readPatternFromTree(GRID, Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder));
 		postMessage({type:"render", top:topBorder, left:leftBorder, pattern:visiblePattern, population:GRID.head.population, generation:genCount, backgroundState:GRID.backgroundState});
 	}else{
-		//TODO: implement finite grids
 		const visiblePattern = GRID.finiteArray;
 		postMessage({type:"render", top:GRID.finiteArea.top - GRID.finiteArea.margin, left:GRID.finiteArea.left - GRID.finiteArea.margin, pattern:visiblePattern, population:91, generation:genCount, backgroundState:GRID.backgroundState});
 	}
