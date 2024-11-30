@@ -2067,6 +2067,9 @@ onmessage = (e) => {
 			if(GRID.type!==e.data.grid)postMessage({id:e.data.id, response:setGridType(e.data.grid)});
 			console.timeEnd("changing GRID type"); 
 			break;
+		case "transformClippedPattern":
+			clipboard[e.data.clipboard].pattern=e.data.pattern;
+			break;
 		case "copy":
 		case "cut":{
       let pattern=readPattern(e.data.area);
@@ -2121,10 +2124,13 @@ onmessage = (e) => {
 		case "write":
 			console.time("write pattern");
       // GRID.head = widenTree({top:e.data.args[1], right:e.data.args[0] + e.data.args[2][0].length, bottom:e.data.args[1] + e.data.args[2].length, left:e.data.args[0]});
-			currentEvent=writePatternAndSave(e.data.args[0],e.data.args[1],clipboard[e.data.args[2]]);
+			currentEvent=writePatternAndSave(e.data.args[0],e.data.args[1],clipboard[e.data.args[2]].pattern);
 			postMessage({id:e.data.id});
 			console.timeEnd("write pattern");
 			sendVisibleCells();
+			break;
+		case "getBounds":
+			postMessage({id:e.data.id, response:calculateBounds(GRID)});
 			break;
     default:
       self[e.data.type](...e.data.args);

@@ -1530,7 +1530,6 @@ function flipDiag(){
 
 //flip the pattern to be pasted
 function flipOrtho(direction="horizonal"){
-	const patternWidth=clipboard[activeClipboard].pattern.length;
 	let newPattern=new Array(clipboard[activeClipboard].pattern.length);
 	for(let i=0;i<newPattern.length;i++){
 		newPattern[i]=new Array(clipboard[activeClipboard].pattern[0].length);
@@ -1543,6 +1542,8 @@ function flipOrtho(direction="horizonal"){
 		}
 	}
 	clipboard[activeClipboard].pattern=newPattern;
+	worker.postMessage({type:"transformClippedPattern", pattern:newPattern, clipboard:activeClipboard});
+	clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
 	render();
 }
 
@@ -2249,7 +2250,7 @@ function importRLE(rleText){
 
 function exportRLE(){
 	// return patternToRLE(exportPattern().pattern);
-	worker.postMessage({type:"getBounds"})
+	worker.postMessage({type:"getBounds", args:[]})
 		.then((response) => worker.postMessage({type:"export", area:response}))
 		.then((response) => document.getElementById('rle').value=response);
 }
