@@ -2074,7 +2074,7 @@ onmessage = (e) => {
 		case "cut":{
       let pattern=readPattern(e.data.area);
 			postMessage({id:e.data.id, response:pattern});
-      clipboard[e.data.clipboard]=pattern;
+      clipboard[e.data.clipboard].pattern=pattern;
       console.log(pattern);
 			if(e.data.type==="copy")break;
     }
