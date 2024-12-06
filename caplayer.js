@@ -1821,7 +1821,7 @@ function zoom(deltaZoom, xFocus=0.5*canvasWidth, yFocus=0.5*canvasHeight, pastVi
 //turn off lines if zoomed out significantly
 //then change canvas tone to match
 function updateCanvasColor(updateCanvas=false){
-	if(detailedCanvas!==view.x > 0.2||updateCanvas){
+	if(detailedCanvas!==view.z > 0.2||updateCanvas){
     detailedCanvas = view.z > 0.2;
 		if(detailedCanvas){
 			canvas.style.backgroundColor=ruleMetadata.color[GRID.backgroundState][0];
