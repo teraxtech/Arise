@@ -1235,7 +1235,7 @@ function getSpaceshipEnvelope(ship,grid,area){
 		spaceshipEnvelope[3]=Math.min(searchArea.left+getLeftPatternMargin(search)  ,spaceshipEnvelope[3]);
 
 		if(location.x!==-1){
-			grid.head=initialGrid;
+			setEvent(initialEvent);
 			let shipPattern=new Array(period);
 			//find pattern
 			for(let j=0;j<period;j++){
