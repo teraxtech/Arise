@@ -1072,16 +1072,13 @@ function setMenu(elementId, value){
 
 function searchAction(element){
 	let conditions=element.getElementsByClassName("condition");
-  console.log("called");
 	if(conditions.length<=1)return -1;
-  console.log("almost");
 	for(let i=0;i<conditions.length-1;i++){
 		if((conditions[i].condition(element)!==true)===
 			(conditions[i].previousElementSibling.children[0].innerText==="When")){
 			return -2;
 		}
 	}
-  console.log("reached");
 	element.action(element);
 	return 0;
 }
@@ -1295,8 +1292,9 @@ function changeAction(element){
 			}else if(element.children[2].children[0].innerHTML==="Paste Area"&&pasteArea.isActive){
 				pasteArea.top+=parseInt(element.children[4].value);
 				pasteArea.left+=parseInt(element.children[3].value);
-				currentEvent=writePatternAndSave(pasteArea.left,pasteArea.top,clipboard[activeClipboard].pattern);
-				if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
+				paste();
+				//TODO: update collaboration features
+				// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
 			}
 		}
 	},{
@@ -1725,6 +1723,7 @@ function reset() {
 		isPlaying=false;
 	}
 	worker.postMessage({type:"reset",args:[]});
+	wasReset=true;
 }
 
 function resetActions(){
@@ -1733,7 +1732,6 @@ function resetActions(){
 	const conditionElements=document.getElementById("searchOptions").getElementsByClassName("condition");
 	for(let i=0;i<conditionElements.length;i++){
 		if(conditionElements[i].children[0]&&conditionElements[i].children[0].innerHTML==="Reset"){
-      console.log("do reset action");
 			searchAction(conditionElements[i].parentElement);
 			break;
 		}
