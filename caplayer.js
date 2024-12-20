@@ -1,14 +1,5 @@
 "use strict"
 
-class ListNode {
-	constructor(parent){
-		this.value = 0;
-		this.tree = null;
-		this.child = null;
-		this.parent = parent;
-	}
-}
-
 class Pointer {
 	constructor(x, y, id=0) {
 		this.dragX=x;
@@ -16,9 +7,90 @@ class Pointer {
 		this.x=x;
 		this.y=y;
 		this.id=id;
+    this.objectBeingDragged=null;
 	}
 	get deltaX() { return this.dragX - this.x; }
 	get deltaY() { return this.dragY - this.y; }
+}
+
+class Area {
+  constructor(top=0, right=0, bottom=0, left=0){
+    this.isActive=false;
+    this.isBeingDragged=false;
+    this.top=top;
+    this.right=right;
+    this.bottom=bottom;
+    this.left=left;
+    this.pointerRelativeX=0;
+    this.pointerRelativeY=0;
+    this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
+    this.pattern=[];
+    this.previewBitmap=null;
+  }
+  
+  setLocation(x, y){
+    this.bottom+=y-this.top;
+    this.right+=x-this.left;
+    this.top=y;
+    this.left=x;
+  }
+
+  setSize(top, right, bottom, left){
+    this.top=arguments.length===1?arguments.top:top;
+    this.right=arguments.lenght===1?arguments.right:right;
+    this.bottom=arguments.lenght===1?arguments.bottom:bottom;
+    this.left=arguments.lenght===1?arguments.left:left;
+  }
+  
+  moveEdgeTo(x, y){
+		if(mod(edgeBeingDragged,3)===2){
+      this.bottom=y+1;
+			if(y<this.top){
+				this.bottom=this.top+1;
+				edgeBeingDragged+=2;
+			}
+			if(edgeBeingDragged===-1){
+				if(x<this.left)edgeBeingDragged=-4;
+				if(x>this.right)edgeBeingDragged=2;
+			}
+		}
+		//drag left edgeBeingDragged
+		if(edgeBeingDragged>=-4&&edgeBeingDragged<=-2){
+			this.left=x;
+			if(x>=this.right-1){
+				this.left=this.right-1;
+				edgeBeingDragged+=6;
+			}
+			if(edgeBeingDragged===-3){
+				if(y<this.top)edgeBeingDragged=-2;
+				if(y>this.bottom)edgeBeingDragged=-4;
+			}
+		}
+		//drag top edgeBeingDragged
+		if(mod(edgeBeingDragged,3)===1){
+			this.top=y;
+			if(y>=this.bottom-1){
+				this.top=this.bottom-1;
+				edgeBeingDragged-=2;
+			}
+			if(edgeBeingDragged===1){
+				if(x<this.left)edgeBeingDragged=-2;
+				if(x>this.right)edgeBeingDragged=4;
+			}
+		}
+	//	//drag right edgeBeingDragged
+		if(edgeBeingDragged>=2&&edgeBeingDragged<=4){
+			this.right=x+1;
+			if(x<this.left+1){
+				this.right=this.left+1;
+				edgeBeingDragged-=6;
+			}
+			if(edgeBeingDragged===3){
+				if(y<this.top)edgeBeingDragged=4;
+				if(y>this.bottom)edgeBeingDragged=2;
+			}
+		}
+  }
 }
 
 //TODO: implement an object to handle backaend state and methods, possibly with general worker class.
@@ -71,10 +143,32 @@ class Thread{
 					canvas.style.backgroundColor=ruleMetadata.color[e.data.backgroundState][e.data.backgroundState];
 				}
 				GRID.backgroundState = e.data.backgroundState;
+				if(clearDrawnCells){
+					drawnCells=[];
+					clearDrawnCells=false;
+				}
 				requestAnimationFrame(render);
 				document.getElementById("population").innerHTML="Population "+e.data.population;
 				document.getElementById("gens").innerHTML="Generation "+e.data.generation;
 				break;
+      case "identificationResults":
+        document.getElementById("identifyOutput").innerHTML=`
+          <span>
+            select area width: ${selectArea.right-selectArea.left}\n
+            select area height: ${selectArea.bottom-selectArea.top}\n
+            period: ${e.data.value.period}\n
+            x displacement: ${e.data.value.dx}\n
+            y displacement: ${e.data.value.dy}
+            time elapsed: ${Math.ceil(e.data.value.timeElapsed)}
+          </span>
+          <canvas id="identifiedShip" style="float: none;margin: none;"></canvas>`;
+        let canvasElement=document.getElementById("identifiedShip").getContext("2d");
+
+        const bitmap=patternToBitmap(e.data.value.phases[0]);
+        document.getElementById("identifiedShip").width=bitmap.width;
+        document.getElementById("identifiedShip").height=bitmap.height;
+        canvasElement.drawImage(bitmap,0,0);
+        break;
 		}
 	}
 }
@@ -91,7 +185,7 @@ var
 	//width of each cell
 	cellWidth=20,
 	//copy paste clipboard
-	clipboard=Array(3).fill().map(() => ({pattern:[],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null})),
+	clipboard=Array.from({length: 6}, () => new Area()),
 	//canvas context
 	ctx=canvas.getContext("2d"),
 	//this determines if the UI is using the dark theme.
@@ -104,6 +198,8 @@ var
 	drawMode=1,
 	//list of cells drawn in one action
 	drawnCells=[],
+	//to be cleared
+	clearDrawnCells=false,
 	//this determines whether the simulation is in draw, move, or select mode
 	editMode=0,
 	//time elapsed
@@ -117,7 +213,9 @@ var
 		//data for the cells on a finite grid
 		finiteArray:[],
 		//area representing a finite portion of the grid
-		finiteArea:{margin:0,top:0,right:0,bottom:0,left:0,newTop:0,newRight:0,newBottom:0,newLeft:0},
+		finiteArea:new Area(),
+    //margin of permantly off cells around the pattern
+    margin:false,
 		//state of the background(used for B0 rules)
 		backgroundState:0
 	},
@@ -133,7 +231,7 @@ var
 	pointers=[],
 	//TODO: store dimensions as array and add getters for top, left, etc...
 	//area containing the pattern to be pasted
-	pasteArea={isActive:false,top:0,left:0,pointerRelativeX:0,pointerRelativeY:0},
+	pasteArea=new Area(),
 	//point where the simulator resets to
 	resetEvent=null,
 	//rule stored internally as an n-tree for a n state rule
@@ -148,7 +246,7 @@ var
                 forceLife:[false,false]},
 	//selected area
 	//TODO: store dimensions as array and add getters for top, left, etc...
-	selectArea={isActive:false,top:0,right:0,bottom:0,left:0},
+	selectArea=new Area(),
 	//index of the marker being selected and interacted with
 	selectedMarker=-1,
 	//keeps track of when the last generation occurred
@@ -165,6 +263,9 @@ var
 	wasReset=false,
 	//window and canvas dimensions
 	windowHeight=0,windowWidth=0,canvasWidth=0,canvasHeight=0;
+
+clipboard[1].pattern=[[1,0],[0,1]];
+console.log(clipboard);
 
 let countRenders = 0;
 let socket;
@@ -271,10 +372,7 @@ function importSettings(){
 			setActionMenu();
 			area=value.split(".").map(str => parseInt(str));
 
-			selectArea.top=area[0];
-			selectArea.right=area[1];
-			selectArea.bottom=area[2];
-			selectArea.left=area[3];
+      selectArea.setSize(...area);
 			break;
 		case "pasteA":
 			pasteArea.isActive=true;
@@ -294,9 +392,10 @@ function importSettings(){
 				document.getElementById("population").innerHTML="Population "+(GRID.backgroundState===0?GRID.head.population:GRID.head.distance*GRID.head.distance-GRID.head.population);
 			}else{
 				GRID.type=parseInt(value.split(".")[4]);
-				GRID.finiteArea={margin:GRID.type===1?1:0,top:area[0],right:area[1],bottom:area[2],left:area[3],newTop:area[0],newRight:area[1],newBottom:area[2],newLeft:area[3]},
+        //TODO: change this line to use the area class functionality
+				// GRID.finiteArea={margin:GRID.type===1?1:0,top:area[0],right:area[1],bottom:area[2],left:area[3],newTop:area[0],newRight:area[1],newBottom:area[2],newLeft:area[3]},
 				//add appropriate margin to pattern
-				GRID.finiteArray=baseNToPattern(area[1]-area[3]+2*GRID.finiteArea.margin,area[2]-area[0]+2*GRID.finiteArea.margin,LZ77ToBaseN(value.split(".")[5]));
+				GRID.finiteArray=baseNToPattern(area[1]-area[3]+2*GRID.margin,area[2]-area[0]+2*GRID.margin,LZ77ToBaseN(value.split(".")[5]));
 				document.getElementById("population").innerHTML="Population "+gridPopulation;
 			}
 			fitView();
@@ -637,6 +736,8 @@ window.onscroll = function(){
 canvas.onpointerdown = (event) => {
 	canvas.setPointerCapture(event.pointerId);
 	inputReset();
+  //resets clearDrawnCells after a non draw pointer event, one which deesn't trigger a render message from the worker
+  clearDrawnCells=false;
 
 	pointers.push(new Pointer(event.clientX-canvas.getBoundingClientRect().left,event.clientY-canvas.getBoundingClientRect().top, event.pointerId));
 
@@ -644,6 +745,7 @@ canvas.onpointerdown = (event) => {
 		case 0:
 		drawnCells.push([]);
 		drawCell();
+    //get the cell state to be used for drawing from the worker [x, y]
 		worker.postMessage({
 			type:"writeCell",
 			//TODO: reaname args to something less esoteric
@@ -652,10 +754,13 @@ canvas.onpointerdown = (event) => {
 				Math.floor(((pointers[pointers.length - 1].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y),
 				drawnCells.length-1
 			]
+    //use the recieved cell state to set the state of any cells already drawn
 		}).then((response) => {
-			for(const cell of drawnCells[response.index])
-				if(cell.newState===-1)cell.newState = response.state===0?drawMode:0;
-			if(pointers.length===0)sendDrawnCells(drawnCells[response.index], response.index);
+      try{
+        for(const cell of drawnCells[response.index])
+          if(cell.newState===-1)cell.newState = response.state===0?drawMode:0;
+        if(pointers.length===0)sendDrawnCells(drawnCells[response.index], response.index);
+      }catch{}
 		});
 		break;
 		case 1: move(); break;
@@ -682,6 +787,8 @@ canvas.onpointerup = (event) => {
 	const index = pointers.findIndex((p) => p.id === event.pointerId);
 	pointers.splice(index, 1);
 	inputReset();
+
+	clearDrawnCells=true;
   render();
 }
 
@@ -750,7 +857,7 @@ function sendDrawnCells(element, index){
 		worker.postMessage({type:"drawList", editList:element}).then((changedCells) => {
 			if(socket&&resetEvent===null)socket.emit("draw", Date.now(), changedCells);
 		});
-		delete drawnCells[index];
+		// delete drawnCells[index];
 	}
 }
 
@@ -763,30 +870,32 @@ function inputReset(){
 	view.touchZ=view.z;
 	//reset drawState and save any changes to the grid
 	drawnCells.forEach(sendDrawnCells);
-	if(GRID.finiteArea.newTop!==GRID.finiteArea.top||GRID.finiteArea.newRight!==GRID.finiteArea.right||GRID.finiteArea.newBottom!==GRID.finiteArea.bottom||GRID.finiteArea.newLeft!==GRID.finiteArea.left){
-		let resizedArray=new Array(GRID.finiteArea.newRight-GRID.finiteArea.newLeft+(GRID.type===1?2:0));
+  //shift the pattern if the finite area is resized
+  //TODO: figure out why the finite area changes but finite array does not
+	if(GRID.finiteArea.isBeingDragged){
+		let resizedArray=new Array(GRID.finiteArea.right-GRID.finiteArea.left+(GRID.type===1?2:0));
 		for(let i=0; i<resizedArray.length;i++){
-			resizedArray[i]=new Array(GRID.finiteArea.newBottom-GRID.finiteArea.newTop+(GRID.type===1?2:0));
+			resizedArray[i]=new Array(GRID.finiteArea.bottom-GRID.finiteArea.top+(GRID.type===1?2:0));
 			for(let j=0; j<resizedArray[0].length;j++){
-				if(i>=GRID.finiteArea.left-GRID.finiteArea.newLeft+GRID.finiteArea.margin&&i<GRID.finiteArea.left-GRID.finiteArea.newLeft+GRID.finiteArray.length-GRID.finiteArea.margin&&j>=GRID.finiteArea.top-GRID.finiteArea.newTop+GRID.finiteArea.margin&&j<GRID.finiteArea.top-GRID.finiteArea.newTop+GRID.finiteArray[0].length-GRID.finiteArea.margin){
-					resizedArray[i][j]=GRID.finiteArray[i+GRID.finiteArea.newLeft-GRID.finiteArea.left][j+GRID.finiteArea.newTop-GRID.finiteArea.top];
+				if(i>=GRID.finiteArea.left-GRID.finiteArea.left+GRID.margin&&i<GRID.finiteArea.left-GRID.finiteArea.left+GRID.finiteArray.length-GRID.margin&&j>=GRID.finiteArea.top-GRID.finiteArea.top+GRID.margin&&j<GRID.finiteArea.top-GRID.finiteArea.top+GRID.finiteArray[0].length-GRID.margin){
+					resizedArray[i][j]=GRID.finiteArray[i+GRID.finiteArea.left-GRID.finiteArea.left][j+GRID.finiteArea.top-GRID.finiteArea.top];
 				}else{
 					resizedArray[i][j]=GRID.backgroundState;
 				}
 			}
 		}
 		GRID.finiteArray=resizedArray;
-		GRID.finiteArea.top=GRID.finiteArea.newTop;
-		GRID.finiteArea.right=GRID.finiteArea.newRight;
-		GRID.finiteArea.bottom=GRID.finiteArea.newBottom;
-		GRID.finiteArea.left=GRID.finiteArea.newLeft;
 	}
 
 	//keeps track of select area edges
 	edgeBeingDragged = 0;
+  selectArea.isBeingDragged=false;
+  GRID.finiteArea.isBeingDragged=false;
+  pasteArea.isBeingDragged=false;
 
 	//reset the markers
 	selectedMarker=-1;
+  //TODO: may be superfluous after changing the drag mechanics
 	if(selectArea.left===selectArea.right||selectArea.top===selectArea.bottom){
 		selectArea.isActive=false;
 		setActionMenu();
@@ -918,155 +1027,6 @@ function setDrawMenu(){
 	setButtonColor(menu.parentNode.children[0], drawMode);
 }
 
-function identify(){
-	const startTime=Date.now();
-	if(selectArea.isActive===false)selectAll();
-	let patternInfo=findShip(readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left),selectArea);
-	if(patternInfo.period===0){
-		alert("couldn't recognize periodic pattern");
-		return;
-	}
-	document.getElementById("identifyOutput").innerHTML=`
-		<span>
-			select area width: ${selectArea.right-selectArea.left}\n
-			select area height: ${selectArea.bottom-selectArea.top}\n
-			period: ${patternInfo.period}\n
-			x displacement: ${patternInfo.dx}\n
-			y displacement: ${patternInfo.dy}
-			time elapsed: ${Math.ceil(Date.now()-startTime)}
-		</span>
-		<canvas id="identifiedShip" style="float: none;margin: none;"></canvas>`;
-	let canvasElement=document.getElementById("identifiedShip").getContext("2d");
-
-	const bitmap=patternToBitmap(patternInfo.phases[0]);
-	document.getElementById("identifiedShip").width=bitmap.width;
-	document.getElementById("identifiedShip").height=bitmap.height;
-	canvasElement.drawImage(bitmap,0,0);
-}
-
-function getTopPatternMargin(pattern,rangeStart=0,rangeEnd=pattern.length){
-	for(let j=0; j<pattern[0].length; j++){
-		for(let i=rangeStart; i<rangeEnd; i++){
-			if(pattern[i][j]!==0){
-				return j;
-			}
-		}
-	}
-	return -1;
-}
-
-function getRightPatternMargin(pattern,rangeStart=0,rangeEnd=pattern[0].length){
-	for(let i=pattern.length-1; i>=0; i--){
-		for(let j=rangeStart; j<rangeEnd; j++){
-			if(pattern[i][j]!==0){
-				return i+1;
-			}
-		}
-	}
-	return -1;
-}
-
-function getBottomPatternMargin(pattern,rangeStart=0,rangeEnd=pattern.length){
-	for(let j=pattern[0].length-1; j>=0; j--){
-		for(let i=rangeStart; i<rangeEnd; i++){
-			if(pattern[i][j]!==0){
-				return j+1;
-			}
-		}
-	}
-	return -1;
-}
-
-function getLeftPatternMargin(pattern,rangeStart=0,rangeEnd=pattern[0].length){
-	for(let i=0; i<pattern.length; i++){
-		for(let j=rangeStart; j<rangeEnd; j++){
-			if(pattern[i][j]!==0){
-				return i;
-			}
-		}
-	}
-	return -1;
-}
-
-function getSpaceshipEnvelope(ship,grid,area){
-	const maxPeriod=300, initialGrid=grid.head, initialEvent=new EventNode(null);
-	const startLocation=findPattern(readPattern(area.top,area.right,area.bottom,area.left,grid),ship);
-	if(-1===startLocation.x){
-		console.trace();
-		console.log("can't find ship");
-		return {dx:null, dy:null, period:0};
-	}
-
-	const initialShipPosition=[
-		startLocation.y+area.top,
-		startLocation.x+area.left+ship.length,
-		startLocation.y+area.top +ship[0].length,
-		startLocation.x+area.left];
-	let searchArea = new Array(4), spaceshipEnvelope=[...initialShipPosition];
-
-	let speedOfLight=1;//0.5;
-	//if(ruleHasLightSpeedShips)speedOfLight=1;
-
-	for(let period=1;period<maxPeriod;period++){
-		gen(grid);
-		searchArea[0]=initialShipPosition[0]-Math.floor(period*speedOfLight);
-		searchArea[1]=initialShipPosition[1]+Math.ceil( period*speedOfLight);
-		searchArea[2]=initialShipPosition[2]+Math.ceil( period*speedOfLight);
-		searchArea[3]=initialShipPosition[3]-Math.floor(period*speedOfLight);
-
-		const search=readPattern(...searchArea,grid);
-		let location=findPattern(readPattern(...searchArea,grid),ship);
-		spaceshipEnvelope[0]=Math.min(searchArea[0]+getTopPatternMargin(search)   ,spaceshipEnvelope[0]);
-		spaceshipEnvelope[1]=Math.max(searchArea[3]+getRightPatternMargin(search) ,spaceshipEnvelope[1]);
-		spaceshipEnvelope[2]=Math.max(searchArea[0]+getBottomPatternMargin(search),spaceshipEnvelope[2]);
-		spaceshipEnvelope[3]=Math.min(searchArea[3]+getLeftPatternMargin(search)  ,spaceshipEnvelope[3]);
-
-		if(location.x!==-1){
-			grid.head=initialGrid;
-			let shipPattern=new Array(period);
-			//find pattern
-			for(let j=0;j<period;j++){
-				shipPattern[j]=readPattern(...spaceshipEnvelope,grid);
-				gen(grid);
-			}
-      //TODO: rewrite
-			// setEvent(initialEvent);
-			return {
-				dx:(location.x+searchArea[3])-(startLocation.x+area.left),
-				dy:(location.y+searchArea[0])-(startLocation.y+area.top),
-				shipOffset:{x:spaceshipEnvelope[3]-area.left,y:spaceshipEnvelope[0]-area.top},
-				period:period,
-				phases:shipPattern
-			};
-		}
-	}
-  //TODO: rewrite
-	// setEvent(initialEvent);
-	return {dx:null, dy:null, shipOffset:{x:null,y:null},period:0,phases:[]};
-}
-
-function findShip(ship,area){
-	if(-1===findPattern(readPattern(area.top,area.right,area.bottom,area.left),ship).x){
-		let size=8;
-		while(size<ship.length*2){
-			size*=2;
-			if(size>maxDepth){
-				console.log("pattern too large");
-				return {dx:null, dy:null, shipOffset:{x:null,y:null}, period:0, phases:[]};
-			}
-		}
-		let sandbox={
-			head:getEmptyNode(size),
-			backgroundState:0,
-			type:0};
-		sandbox.head=writePatternToGrid(-size/4,-size/4,ship,sandbox.head);
-
-		return getSpaceshipEnvelope(ship,sandbox,{top:-size/4, right:size/4, bottom:size/4, left:-size/4});
-	}else{
-		return getSpaceshipEnvelope(ship,GRID,area);
-	}
-}
-
 function patternToBitmap(pattern){
 	const cellWidth = 200/(pattern.length);
 	const canvasWidth=200, canvasHeight=Math.ceil(cellWidth*(pattern[0].length));
@@ -1112,13 +1072,16 @@ function setMenu(elementId, value){
 
 function searchAction(element){
 	let conditions=element.getElementsByClassName("condition");
+  console.log("called");
 	if(conditions.length<=1)return -1;
+  console.log("almost");
 	for(let i=0;i<conditions.length-1;i++){
 		if((conditions[i].condition(element)!==true)===
 			(conditions[i].previousElementSibling.children[0].innerText==="When")){
 			return -2;
 		}
 	}
+  console.log("reached");
 	element.action(element);
 	return 0;
 }
@@ -1470,19 +1433,13 @@ function changeGridType(target){
 	console.log("change GRID");
 	worker.postMessage({type:"setGrid", grid: targetIndex}).then((response) => {
 		GRID.type=targetIndex;
-		GRID.finiteArea.margin=targetIndex===1?1:0;
+		GRID.margin=targetIndex===1?1:0;
 		GRID.finiteArea.top = response[3];
 		//                      leftSidePos + pattern width - 2*margin
 		GRID.finiteArea.right = response[2] + response[0].length;
 		//                      topSidePos + pattern height - 2*margin
 		GRID.finiteArea.bottom = response[3] + response[0][0].length;
 		GRID.finiteArea.left = response[2];
-		GRID.finiteArea.newTop = response[3];
-		//                      leftSidePos + pattern width - 2*margin
-		GRID.finiteArea.newRight = response[2] + response[0].length;
-		//                      topSidePos + pattern height - 2*margin
-		GRID.finiteArea.newBottom = response[3] + response[0][0].length;
-		GRID.finiteArea.newLeft = response[2];
 		render();
 		if(socket)socket.emit("changeGrid", response);
 	});
@@ -1516,31 +1473,8 @@ function selectAll(){
   selectArea.isActive=true;
   setActionMenu();
   worker.postMessage({type: "getBounds"}).then((response) => {
-    selectArea.top=response[0];
-    selectArea.right=response[1];
-    selectArea.bottom=response[2];
-    selectArea.left=response[3];
-  });
+    selectArea.setSize(...response)  });
   render();
-}
-
-function findPattern(area,pattern){
-	for(let i=0;i<area.length-pattern.length+1;i++){
-		for(let j=0;j<area[0].length-pattern[0].length+1;j++){
-			let foundDifference=false;
-			for(let k=0;k<pattern.length;k++){
-				for(let l=0;l<pattern[0].length;l++){
-					if(pattern[k][l]!==area[i+k][j+l]){
-						foundDifference=true;
-						break;
-					}
-				}
-				if(foundDifference)break;
-			}
-			if(foundDifference===false)return {x:i,y:j};
-		}
-	}
-	return {x:-1,y:-1};
 }
 
 function editArea(action, area=selectArea){
@@ -1548,7 +1482,7 @@ function editArea(action, area=selectArea){
 		resetClipboard();
 	}else if(selectArea.isActive===true){
     console.log(area);
-    worker.postMessage({type:action, area:area, drawMode:drawMode, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
+    worker.postMessage({type:action, area:area, drawMode:drawMode, clipboard:activeClipboard, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
       if(action==="copy"||action==="cut"){
         clipboard[activeClipboard].pattern=response;
         clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
@@ -1567,7 +1501,7 @@ function paste(){
 	captureScroll=true;
 	if(clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length!==0){
 		if(pasteArea.isActive){
-			worker.postMessage({type:"write", args: [pasteArea.left,pasteArea.top,clipboard[activeClipboard].pattern]});
+			worker.postMessage({type:"write", args: [pasteArea.left,pasteArea.top,activeClipboard]});
 			//TODO: reimplement this
 			// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
 		}else{
@@ -1713,12 +1647,12 @@ function setMark(){
 			if(markers[h].activeState===0){
 				pasteArea.isActive=false;
 				setActionMenu();
+				markers[h].pattern=clipboard[activeClipboard].pattern;
 				markers[h].activeState=1;
 				markers[h].top=pasteArea.top;
 				markers[h].right=pasteArea.left+clipboard[activeClipboard].pattern.length;
 				markers[h].bottom=pasteArea.top+clipboard[activeClipboard].pattern[0].length;
 				markers[h].left=pasteArea.left;
-				markers[h].pattern=clipboard[activeClipboard].pattern;
 				break;
 			}
 		}
@@ -1758,7 +1692,7 @@ function setDark(){
 
 //move e frames forward
 function next(){
-	worker.postMessage({type:"next",args:[]});
+	worker.postMessage({type:"stepSimulation",args:[]});
 }
 
 //toggle updating the simulation
@@ -1773,23 +1707,23 @@ function start(){
 }
 
 function undo(){
-	worker.postMessage({type:"stop"});
+	worker.postMessage({type:"stop",args:[]});
 	isPlaying=false;
-	worker.postMessage({type:"undo"});
+	worker.postMessage({type:"undo",args:[]});
 }
 
 function redo(){
-	worker.postMessage({type:"stop"});
+	worker.postMessage({type:"stop",args:[]});
 	isPlaying=false;
-	worker.postMessage({type:"redo"});
+	worker.postMessage({type:"redo",args:[]});
 }
 
 function reset() {
 	if(isElementCheckedById("resetStop")===true){
-		worker.postMessage({type:"stop"});
+		worker.postMessage({type:"stop",args:[]});
 		isPlaying=false;
 	}
-	worker.postMessage({type:"reset"});
+	worker.postMessage({type:"reset",args:[]});
 }
 
 function resetActions(){
@@ -1798,6 +1732,7 @@ function resetActions(){
 	const conditionElements=document.getElementById("searchOptions").getElementsByClassName("condition");
 	for(let i=0;i<conditionElements.length;i++){
 		if(conditionElements[i].children[0]&&conditionElements[i].children[0].innerHTML==="Reset"){
+      console.log("do reset action");
 			searchAction(conditionElements[i].parentElement);
 			break;
 		}
@@ -1909,93 +1844,48 @@ function move(){
 		let currentSpacing = distance(pointers[0].x-pointers[1].x,pointers[0].y-pointers[1].y);
 		zoom(currentSpacing/pastSpacing, 0.5*(pointers[0].dragX+pointers[1].dragX), 0.5*(pointers[0].dragY+pointers[1].dragY), view.touchX,view.touchY,view.touchZ);
 	}else{
-		switch(edgeBeingDragged){
-		case 0:
-			if(pasteArea.isActive&&clipboard[activeClipboard]&&x>=pasteArea.left&&x<pasteArea.left+clipboard[activeClipboard].pattern.length&&y>=pasteArea.top&&y<pasteArea.top+clipboard[activeClipboard].pattern[0].length){
-				edgeBeingDragged=5;
-				pasteArea.pointerRelativeX=x-pasteArea.left;
-				pasteArea.pointerRelativeY=y-pasteArea.top;
-      //TODO: fix moving on using the pointer while in a finite grid mode
-			}else if(GRID.type!==0&&
-					x>=GRID.finiteArea.left-1-Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
-					x<GRID.finiteArea.right+1+Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
-					y>=GRID.finiteArea.top-1-Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)&&
-					y<GRID.finiteArea.bottom+1+Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)){
-				//select the grid edges if necessary
-				if(x<Math.min(GRID.finiteArea.left+4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
-					edgeBeingDragged=3;
-					isPlaying=false;
-				}else if(x>Math.max(GRID.finiteArea.right-4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
-					edgeBeingDragged=1;
-					isPlaying=false;
-				}
-				if(y<Math.min(GRID.finiteArea.top+4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
-					edgeBeingDragged=4;
-					isPlaying=false;
-				}else if(y>Math.max(GRID.finiteArea.bottom-4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
-					edgeBeingDragged=2;
-					isPlaying=false;
-				}
-			}else{
-				//translate the grid
-				view.x=view.touchX+(pointers[0].deltaX)/cellWidth/view.z;
-				view.y=view.touchY+(pointers[0].deltaY)/cellWidth/view.z;
-				if(socket&&resetEvent===null)socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
-			}
-			break;
-			//drag left edge
-		case 3:
-			//drag the left edge
-			if(x<GRID.finiteArea.right){
-				GRID.finiteArea.newLeft=x;
-				GRID.finiteArea.newRight=GRID.finiteArea.right;
-			}else{
-				GRID.finiteArea.newLeft=GRID.finiteArea.right;
-				GRID.finiteArea.newRight=x+1;
-			}
-			//draw rect across the left
-			break;
-			//drag right edge
-		case 1:
-			//drag the right egde
-			if(x<GRID.finiteArea.left){
-				GRID.finiteArea.newLeft=x;
-				GRID.finiteArea.newRight=GRID.finiteArea.left;
-			}else{
-				GRID.finiteArea.newLeft=GRID.finiteArea.left;
-				GRID.finiteArea.newRight=x+1;
-			}
-			//draw rect across the right
-			break;
-			//drag upper edge
-		case 2:
-			//drag the top edge
-			if(y<GRID.finiteArea.top){
-				GRID.finiteArea.newTop=y;
-				GRID.finiteArea.newBottom=GRID.finiteArea.top;
-			}else{
-				GRID.finiteArea.newTop=GRID.finiteArea.top;
-				GRID.finiteArea.newBottom=y+1;
-			}
-			//draw rect across the top
-			break;
-			//drag downward edge
-		case 4:
-			//drag the bottom edge
-			if(y<GRID.finiteArea.bottom){
-				GRID.finiteArea.newTop=y;
-				GRID.finiteArea.newBottom=GRID.finiteArea.bottom;
-			}else{
-				GRID.finiteArea.newTop=GRID.finiteArea.bottom;
-				GRID.finiteArea.newBottom=y+1;
-			}
-			//draw rect across the bottom
-			break;
-		case 5:
-			pasteArea.left=x-pasteArea.pointerRelativeX;
-			pasteArea.top=y-pasteArea.pointerRelativeY;
-			break;
-		}
+    if(pasteArea.isBeingDragged){
+      pasteArea.left=x-pasteArea.pointerRelativeX;
+      pasteArea.top=y-pasteArea.pointerRelativeY;
+    }else if(GRID.finiteArea.isBeingDragged){
+      console.log(x, y);
+      GRID.finiteArea.moveEdgeTo(x, y);
+    }else{
+      if(pasteArea.isActive&&clipboard[activeClipboard]&&x>=pasteArea.left&&x<pasteArea.left+clipboard[activeClipboard].pattern.length&&y>=pasteArea.top&&y<pasteArea.top+clipboard[activeClipboard].pattern[0].length){
+        pasteArea.isBeingDragged=true;
+        pasteArea.pointerRelativeX=x-pasteArea.left;
+        pasteArea.pointerRelativeY=y-pasteArea.top;
+      }else if(GRID.type!==0&&
+         x>=GRID.finiteArea.left-1-Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
+         x<GRID.finiteArea.right+1+Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
+         y>=GRID.finiteArea.top-1-Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)&&
+         y<GRID.finiteArea.bottom+1+Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)){
+        //select the grid edges if necessary
+        if(x<Math.min(GRID.finiteArea.left+4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
+          edgeBeingDragged=3;
+          GRID.finiteArea.isBeingDragged=true;
+          isPlaying=false;
+        }else if(x>Math.max(GRID.finiteArea.right-4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
+          edgeBeingDragged=1;
+          GRID.finiteArea.isBeingDragged=true;
+          isPlaying=false;
+        }
+        if(y<Math.min(GRID.finiteArea.top+4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
+          edgeBeingDragged=4;
+          GRID.finiteArea.isBeingDragged=true;
+          isPlaying=false;
+        }else if(y>Math.max(GRID.finiteArea.bottom-4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
+          edgeBeingDragged=2;
+          GRID.finiteArea.isBeingDragged=true;
+          isPlaying=false;
+        }
+      }else{
+        //translate the grid
+        view.x=view.touchX+(pointers[0].deltaX)/cellWidth/view.z;
+        view.y=view.touchY+(pointers[0].deltaY)/cellWidth/view.z;
+        if(socket&&resetEvent===null)socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
+      }
+    }
 	}
 	worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
 }
@@ -2048,53 +1938,7 @@ function select(){
 		}
 	}else if(selectArea.isActive===true&edgeBeingDragged!==0){
 		//drag bottom edge
-		if(mod(edgeBeingDragged,3)===2){
-			selectArea.bottom=y+1;
-			if(y<selectArea.top){
-				selectArea.bottom=selectArea.top+1;
-				edgeBeingDragged+=2;
-			}
-			if(edgeBeingDragged===-1){
-				if(x<selectArea.left)edgeBeingDragged=-4;
-				if(x>selectArea.right)edgeBeingDragged=2;
-			}
-		}
-		//drag left edge
-		if(edgeBeingDragged>=-4&&edgeBeingDragged<=-2){
-			selectArea.left=x;
-			if(x>=selectArea.right-1){
-				selectArea.left=selectArea.right-1;
-				edgeBeingDragged+=6;
-			}
-			if(edgeBeingDragged===-3){
-				if(y<selectArea.top)edgeBeingDragged=-2;
-				if(y>selectArea.bottom)edgeBeingDragged=-4;
-			}
-		}
-		//drag top edge
-		if(mod(edgeBeingDragged,3)===1){
-			selectArea.top=y;
-			if(y>=selectArea.bottom-1){
-				selectArea.top=selectArea.bottom-1;
-				edgeBeingDragged-=2;
-			}
-			if(edgeBeingDragged===1){
-				if(x<selectArea.left)edgeBeingDragged=-2;
-				if(x>selectArea.right)edgeBeingDragged=4;
-			}
-		}
-		//drag right edge
-		if(edgeBeingDragged>=2&&edgeBeingDragged<=4){
-			selectArea.right=x+1;
-			if(x<selectArea.left+1){
-				selectArea.right=selectArea.left+1;
-				edgeBeingDragged-=6;
-			}
-			if(edgeBeingDragged===3){
-				if(y<selectArea.top)edgeBeingDragged=4;
-				if(y>selectArea.bottom)edgeBeingDragged=2;
-			}
-		}
+    selectArea.moveEdgeTo(x, y);
 	}else{
 		//marker[#].activestate:
 		//0 = inactive, not visible,
@@ -2335,7 +2179,7 @@ function render(){
 		}else{
 			ctx.strokeStyle="#999999";
 		}
-		ctx.strokeRect(canvasWidth*0.5-((view.x-GRID.finiteArea.newLeft)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-GRID.finiteArea.newTop)*cellWidth+canvasHeight*0.5)*view.z,(GRID.finiteArea.newRight-GRID.finiteArea.newLeft)*scaledCellWidth-1,(GRID.finiteArea.newBottom-GRID.finiteArea.newTop)*scaledCellWidth-1);
+		ctx.strokeRect(canvasWidth*0.5-((view.x-GRID.finiteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-GRID.finiteArea.top)*cellWidth+canvasHeight*0.5)*view.z,(GRID.finiteArea.right-GRID.finiteArea.left)*scaledCellWidth-1,(GRID.finiteArea.bottom-GRID.finiteArea.top)*scaledCellWidth-1);
 	}
 
 	//draw the view of the other clients
@@ -2479,16 +2323,9 @@ if(socket)socket.on("relaySendGrid", msg => {
 	console.log(msg);
 	GRID.type=msg.type;
 	if(GRID.type!==0){
-		GRID.finiteArea.margin=msg.finite.margin;
-		GRID.finiteArea.top=msg.finite.top;
-		GRID.finiteArea.right=msg.finite.right;
-		GRID.finiteArea.bottom=msg.finite.bottom;
-		GRID.finiteArea.left=msg.finite.left;
-		GRID.finiteArea.newTop=msg.finite.top;
-		GRID.finiteArea.newRight=msg.finite.right;
-		GRID.finiteArea.newBottom=msg.finite.bottom;
-		GRID.finiteArea.newLeft=msg.finite.left;
-		GRID.finiteArray=msg.data;
+		GRID.margin=msg.finite.margin;
+		GRID.finiteArea.setSize(msg.finite);
+    GRID.finiteArray=msg.data;
 		console.log(GRID.finiteArray);
 		console.log(GRID.finiteArea);
 	}else{

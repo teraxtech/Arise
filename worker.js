@@ -11,13 +11,19 @@ class TreeNode {
 	}
 }
 
-class ListNode {
-	constructor(parent){
-		this.value = 0;
-		this.tree = null;
-		this.child = null;
-		this.parent = parent;
-	}
+class Area {
+  constructor(top, right, bottom, left){
+    this.isActive=false;
+    this.isBeingDragged=false;
+    this.top=top;
+    this.right=right;
+    this.bottom=bottom;
+    this.left=left;
+    this.pointerRelativeX=0;
+    this.pointerRelativeY=0;
+    this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
+    this.pattern=[];
+  }
 }
 
 class EventNode {
@@ -59,12 +65,8 @@ class EventNode {
 }
 
 var 
-	//collect changest to be saved as a single event
-	accumulateChanges=new ListNode(null),
 	//copy paste clipboard
 	clipboard=Array(3).fill().map(() => ({pattern:[],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null})),
-	//number of accumulated changes
-	changeCount=0,
 	//total depth of nodes being read from the hashtable
 	depthTotal=0,
 	//number of depths added to total, used to calculate average
@@ -84,7 +86,7 @@ var
 		//data for the cells on a finite grid
 		finiteArray:[],
 		//area representing a finite portion of the grid
-		finiteArea:{margin:0,top:0,right:0,bottom:0,left:0,newTop:0,newRight:0,newBottom:0,newLeft:0},
+		finiteArea:{margin:0,top:0,right:0,bottom:0,left:0,newTop:1,newRight:0,newBottom:0,newLeft:0},
 		//state of the background(used for B0 rules)
 		backgroundState:0
 	},
@@ -107,6 +109,8 @@ var
 	rule,
 	//number of nodes in the rule, rule family(INT, Generations, History), color of each state, rulestring
 	ruleMetadata={size:0, family:"INT", color:[], string:"B3/S23"},
+  //the current search
+  searchOptions=[],
   //speed of the simulation 1-100
   simulationSpeed = 100;
 	//number of genertions updated
@@ -394,12 +398,12 @@ function readSubpattern(pattern,top,right,bottom,left){
 	return subpattern;
 }
 
-function readPatternFromTree(tree, topBorder,rightBorder,bottomBorder,leftBorder, knownPortion=[], knownPortionX, knownPortionY){
-  if(rightBorder-leftBorder<0)throw new Error("trying to read negative width");
-  if(bottomBorder-topBorder<0)throw new Error("trying to read negative height");
-	let pattern = new2dArray(rightBorder-leftBorder, bottomBorder-topBorder, GRID.backgroundState);
+function readPatternFromTree(area, tree){
+  if(area.right-area.left<0)throw new Error("trying to read negative width");
+  if(area.bottom-area.top<0)throw new Error("trying to read negative height");
+  let pattern = new2dArray(area.right-area.left, area.bottom-area.top, GRID.backgroundState);
 	let stack = new Array(tree.head.distance.toString(2).length);
-	stack[0]={node:tree.head, direction:0, dist: tree.head.distance*0.25, x:-leftBorder-0.5,y:-topBorder-0.5};
+	stack[0]={node:tree.head, direction:0, dist: tree.head.distance*0.25, x:-area.left-0.5,y:-area.top-0.5};
 	let depth=0;
 	for(let i = 0; ; i++){
 		if(i === Number.MAX_SAFE_INTEGER){
@@ -435,20 +439,20 @@ function readPatternFromTree(tree, topBorder,rightBorder,bottomBorder,leftBorder
 }
 
 
-function readPattern(topBorder,rightBorder,bottomBorder,leftBorder){
-	let pattern=new Array(rightBorder-leftBorder);
+function readPattern(area){
+	let pattern=new Array(area.right-area.left);
 	if(GRID.type===0){
-		return readPatternFromTree(GRID, topBorder, rightBorder, bottomBorder, leftBorder);
+		return readPatternFromTree(area, GRID);
 	}else{
 		const finiteGrid=(arguments[4]!==undefined)?arguments[4].finiteArray:GRID.finiteArray;
 		const finiteGridMargin=(arguments[4]!==undefined)?arguments[4].finiteArea.margin:GRID.finiteArea.margin;
 		const finiteGridLeft=(arguments[4]!==undefined)?arguments[4].finiteArea.left:GRID.finiteArea.left;
 		const finiteGridTop=(arguments[4]!==undefined)?arguments[4].finiteArea.top:GRID.finiteArea.top;
 		for(let i=0;i<pattern.length;i++){
-			pattern[i]=new Array(bottomBorder-topBorder);
+			pattern[i]=new Array(area.bottom-area.top);
 			for(let j=0;j<pattern[i].length;j++){
-				if(j+topBorder>=finiteGridTop-finiteGridMargin&&i+rightBorder<finiteGridLeft+finiteGrid.length+finiteGridMargin&&j+topBorder<finiteGridTop+finiteGrid[0].length+finiteGridMargin&&i+leftBorder>=finiteGridLeft-finiteGridMargin){
-					pattern[i][j]=finiteGrid[i-finiteGridLeft+finiteGridMargin+leftBorder][j-finiteGridTop+finiteGridMargin+topBorder];
+				if(j+area.top>=finiteGridTop-finiteGridMargin&&i+area.right<finiteGridLeft+finiteGrid.length+finiteGridMargin&&j+area.top<finiteGridTop+finiteGrid[0].length+finiteGridMargin&&i+area.left>=finiteGridLeft-finiteGridMargin){
+					pattern[i][j]=finiteGrid[i-finiteGridLeft+finiteGridMargin+area.left][j-finiteGridTop+finiteGridMargin+area.top];
 				}else{
 					pattern[i][j]=arguments[4]?0:GRID.backgroundState;
 				}
@@ -474,7 +478,7 @@ function expandGridToCell(x,y){
 
 function writeCell(x,y,state){
 	let sumX=0, sumY=0;
-	let progress= new ListNode(null);
+	let progress=[], visitedNodes=[];
 	//if the grid is infinite
 	if(GRID.type===0){
 		expandGridToCell(x, y);
@@ -486,44 +490,40 @@ function writeCell(x,y,state){
 			}
 			if(y*2<sumY){
 				if(x*2<sumX){
-					progress.value=0;
-					progress.tree=node;
+          progress.push(0)
+					visitedNodes.push(node);
 					node=node.child[0];
 					sumX-=node.distance;
 					sumY-=node.distance;
-					progress= new ListNode(progress);
 					if(node.distance===1){
 						break;
 					}
 				}else{
-					progress.value=1;
-					progress.tree=node;
+          progress.push(1)
+					visitedNodes.push(node);
 					node=node.child[1];
 					sumX+=node.distance;
 					sumY-=node.distance;
-					progress= new ListNode(progress);
 					if(node.distance===1){
 						break;
 					}
 				}
 			}else{
 				if(x*2<sumX){
-					progress.value=2;
-					progress.tree=node;
+          progress.push(2)
+					visitedNodes.push(node);
 					node=node.child[2];
 					sumX-=node.distance;
 					sumY+=node.distance;
-					progress= new ListNode(progress);
 					if(node.distance===1){
 						break;
 					}
 				}else{
-					progress.value=3;
-					progress.tree=node;
+          progress.push(3)
+					visitedNodes.push(node);
 					node=node.child[3];
 					sumX+=node.distance;
 					sumY+=node.distance;
-					progress= new ListNode(progress);
 					if(node.distance===1){
 						break;
 					}
@@ -560,38 +560,30 @@ function writeCell(x,y,state){
 			// }
 
 			if(node.value!==state){
-				accumulateChanges.value={x:x,y:y,newState:state,oldState:node.value};
-				accumulateChanges=accumulateChanges.child=new ListNode(accumulateChanges);
-				changeCount++;
 				//make a copy of the node with the new state
 				let newNode=new TreeNode(1);
 				newNode.value=state;
 
 				//go through the edited node and all the parents
-				for(let h=0;;h++){
+				for(let h=progress.length-1;h>=0;h--){
 					if(h>maxDepth){
 						console.log(`maxDepth of ${maxDepth} reached.`);
 						break;
 					}
 					newNode=writeNode(newNode);
-
-					//end if parent doesn't exist
-					if(progress.parent===null){
-						GRID.head=newNode;
-						break;
-					}
-					progress=progress.parent;
+          
 					//make a copy of the parent node
-					let parentNode=new TreeNode(progress.tree.distance);
+					let parentNode=new TreeNode(visitedNodes[h].distance);
 					for(let i=0;i<4;i++){
-						if(i===progress.value){
+						if(i===progress[h]){
 							parentNode.child[i]=newNode;
 						}else{
-							parentNode.child[i]=progress.tree.child[i];
+							parentNode.child[i]=visitedNodes[h].child[i];
 						}
 					}
 					newNode=writeNode(parentNode);
 				}
+        GRID.head=newNode;
 			}
 		}
 		return node.value;
@@ -624,9 +616,6 @@ function writeCell(x,y,state){
 			// 	isPlaying=0;
 			// }
 			gridPopulation+=state===1?1:-1;
-			accumulateChanges.value={x:x,y:y,newState:state,oldState:GRID.finiteArray[x-GRID.finiteArea.left+GRID.finiteArea.margin][y-GRID.finiteArea.top+GRID.finiteArea.margin]};
-			accumulateChanges=accumulateChanges.child=new ListNode(accumulateChanges);
-			changeCount++;
 			GRID.finiteArray[x-GRID.finiteArea.left+GRID.finiteArea.margin][y-GRID.finiteArea.top+GRID.finiteArea.margin]=state;
 		}
 	}
@@ -666,7 +655,7 @@ function getResult(node){
 		console.log("Error: Cannot find result of node smaller than 4");
 	}else if(node.distance===4){
 		//the result of nodes 4 cells wide are calculated conventionally
-		result=writePatternToGrid(-1,-1,iteratePattern(readPatternFromTree({head:node}, -2,2,2,-2),1,3,3,1),getEmptyNode(2));
+		result=writePatternToGrid(-1,-1,iteratePattern(readPatternFromTree(new Area(-2,2,2,-2), {head:node}),1,3,3,1),getEmptyNode(2));
 	}else if(node.distance>=8){
 		//the result of larger nodes are calculated based on the results of their child nodes
 		//
@@ -978,7 +967,7 @@ function reset(pause=true){
 
 function writePatternAndSave(xPosition,yPosition,pattern){
 	if(!pattern||pattern.length===0)return currentEvent;
-	const previousPattern=readPattern(yPosition,xPosition+pattern.length,yPosition+pattern[0].length,xPosition,GRID);
+	const previousPattern=readPattern(new Area(yPosition,xPosition+pattern.length,yPosition+pattern[0].length,xPosition),GRID);
 	
 	//if a grid other than the "main" grid is passed as a 4th argument
 	if(GRID.type===0){
@@ -1134,6 +1123,161 @@ function redo(){
 	}
 	isPlaying=0;
 	sendVisibleCells();
+}
+
+async function identify(area){
+	const startTime=Date.now();
+  area = area.isActive ? area : new Area(...calculateBounds(GRID));
+	let patternInfo=findShip(readPattern(area),area);
+	if(patternInfo.period===0){
+    //TODO: send alert back to UI thread
+		// alert("couldn't recognize periodic pattern");
+		return;
+	}
+  patternInfo.timeElapsed=Date.now()-startTime;
+  postMessage({type:"identificationResults",value:patternInfo});
+}
+
+function findPattern(area,pattern){
+	for(let i=0;i<area.length-pattern.length+1;i++){
+		for(let j=0;j<area[0].length-pattern[0].length+1;j++){
+			let foundDifference=false;
+			for(let k=0;k<pattern.length;k++){
+				for(let l=0;l<pattern[0].length;l++){
+					if(pattern[k][l]!==area[i+k][j+l]){
+						foundDifference=true;
+						break;
+					}
+				}
+				if(foundDifference)break;
+			}
+			if(foundDifference===false)return {x:i,y:j};
+		}
+	}
+	return {x:-1,y:-1};
+}
+
+function getTopPatternMargin(pattern,rangeStart=0,rangeEnd=pattern.length){
+	for(let j=0; j<pattern[0].length; j++){
+		for(let i=rangeStart; i<rangeEnd; i++){
+			if(pattern[i][j]!==0){
+				return j;
+			}
+		}
+	}
+	return -1;
+}
+
+function getRightPatternMargin(pattern,rangeStart=0,rangeEnd=pattern[0].length){
+	for(let i=pattern.length-1; i>=0; i--){
+		for(let j=rangeStart; j<rangeEnd; j++){
+			if(pattern[i][j]!==0){
+				return i+1;
+			}
+		}
+	}
+	return -1;
+}
+
+function getBottomPatternMargin(pattern,rangeStart=0,rangeEnd=pattern.length){
+	for(let j=pattern[0].length-1; j>=0; j--){
+		for(let i=rangeStart; i<rangeEnd; i++){
+			if(pattern[i][j]!==0){
+				return j+1;
+			}
+		}
+	}
+	return -1;
+}
+
+function getLeftPatternMargin(pattern,rangeStart=0,rangeEnd=pattern[0].length){
+	for(let i=0; i<pattern.length; i++){
+		for(let j=rangeStart; j<rangeEnd; j++){
+			if(pattern[i][j]!==0){
+				return i;
+			}
+		}
+	}
+	return -1;
+}
+
+function getSpaceshipEnvelope(ship,grid,area){
+	const maxPeriod=300, initialGrid=grid.head, initialEvent=new EventNode(null);
+	const startLocation=findPattern(readPattern(area,grid),ship);
+	if(-1===startLocation.x){
+		console.trace();
+		console.log("can't find ship");
+		return {dx:null, dy:null, period:0};
+	}
+
+	const initialShipPosition=[
+		startLocation.y+area.top,
+		startLocation.x+area.left+ship.length,
+		startLocation.y+area.top +ship[0].length,
+		startLocation.x+area.left];
+	let searchArea = new Area(0,0,0,0), spaceshipEnvelope=[...initialShipPosition];
+
+	let speedOfLight=1;//0.5;
+	//if(ruleHasLightSpeedShips)speedOfLight=1;
+
+	for(let period=1;period<maxPeriod;period++){
+		gen(grid);
+		searchArea.top=initialShipPosition[0]-Math.floor(period*speedOfLight);
+		searchArea.right=initialShipPosition[1]+Math.ceil( period*speedOfLight);
+		searchArea.bottom=initialShipPosition[2]+Math.ceil( period*speedOfLight);
+		searchArea.left=initialShipPosition[3]-Math.floor(period*speedOfLight);
+
+		const search=readPatternFromTree(searchArea,grid);
+		let location=findPattern(readPatternFromTree(searchArea,grid),ship);
+		spaceshipEnvelope[0]=Math.min(searchArea.top+getTopPatternMargin(search)   ,spaceshipEnvelope[0]);
+		spaceshipEnvelope[1]=Math.max(searchArea.left+getRightPatternMargin(search) ,spaceshipEnvelope[1]);
+		spaceshipEnvelope[2]=Math.max(searchArea.top+getBottomPatternMargin(search),spaceshipEnvelope[2]);
+		spaceshipEnvelope[3]=Math.min(searchArea.left+getLeftPatternMargin(search)  ,spaceshipEnvelope[3]);
+
+		if(location.x!==-1){
+			grid.head=initialGrid;
+			let shipPattern=new Array(period);
+			//find pattern
+			for(let j=0;j<period;j++){
+				shipPattern[j]=readPatternFromTree(new Area(...spaceshipEnvelope), grid);
+				gen(grid);
+			}
+      //TODO: rewrite
+			setEvent(initialEvent);
+			return {
+				dx:(location.x+searchArea.left)-(startLocation.x+area.left),
+				dy:(location.y+searchArea.top)-(startLocation.y+area.top),
+				shipOffset:{x:spaceshipEnvelope.left-area.left,y:spaceshipEnvelope.top-area.top},
+				period:period,
+				phases:shipPattern
+			};
+		}
+	}
+  //TODO: rewrite
+	setEvent(initialEvent);
+	return {dx:null, dy:null, shipOffset:{x:null,y:null},period:0,phases:[]};
+}
+
+function findShip(ship,areaBounds){
+	if(-1===findPattern(readPattern(areaBounds),ship).x){
+		let size=8;
+		while(size<ship.length*2){
+			size*=2;
+			if(size>maxDepth){
+				console.log("pattern too large");
+				return {dx:null, dy:null, shipOffset:{x:null,y:null}, period:0, phases:[]};
+			}
+		}
+		let sandbox={
+			head:getEmptyNode(size),
+			backgroundState:0,
+			type:0};
+		sandbox.head=writePatternToGrid(-size/4,-size/4,ship,sandbox.head);
+
+		return getSpaceshipEnvelope(ship,sandbox,{top:-size/4, right:size/4, bottom:size/4, left:-size/4});
+	}else{
+		return getSpaceshipEnvelope(ship,GRID,areaBounds);
+	}
 }
 
 //TODO: have function return pattern to be added to paste area
@@ -1445,7 +1589,7 @@ function exportPattern(){
 	case 0:
 		return {xOffset:(getLeftBorder(GRID.head)??0)/2-0.5,
 			yOffset:(getTopBorder(GRID.head)??0)/2-0.5,
-			pattern:readPattern((getTopBorder(GRID.head)??0)/2-0.5,(getRightBorder(GRID.head)??0)/2+0.5,(getBottomBorder(GRID.head)??0)/2+0.5,(getLeftBorder(GRID.head)??0)/2-0.5)};
+			pattern:readPattern(new Area((getTopBorder(GRID.head)??0)/2-0.5,(getRightBorder(GRID.head)??0)/2+0.5,(getBottomBorder(GRID.head)??0)/2+0.5,(getLeftBorder(GRID.head)??0)/2-0.5))};
 	case 1:{
 		let pattern=new Array(GRID.finiteArray.length-2);
 		for(let i=0; i<pattern.length;i++){
@@ -1582,6 +1726,26 @@ function getLeftBorder(node){
 		}
 	}
 	return currentMin;
+}
+
+function getBounds(){
+  postMessage({id:e.data.id, response:calculateBounds(GRID)});
+}
+
+function calculateBounds(gridObj){
+  if(gridObj.type===0){
+    return [
+      getTopBorder(gridObj.head)/2-0.5,
+      getRightBorder(gridObj.head)/2+0.5,
+      getBottomBorder(gridObj.head)/2+0.5,
+      getLeftBorder(gridObj.head)/2-0.5];
+  }else{
+    return [
+      gridObj.finiteArea.top,
+      gridObj.finiteArea.right,
+      gridObj.finiteArea.bottom,
+      gridObj.finiteArea.left];
+  }
 }
 
 function resetHashtable(){
@@ -1837,7 +2001,6 @@ function clean(dirtyString){
 var runningSimulation = false;
 var rendering = false;
 onmessage = (e) => {
-	let area;
 	switch(e.data.type){
 		case "setRule": setRule(e.data.args); break;
     case "setSpeed": simulationSpeed = e.data.value; console.log(simulationSpeed); break;
@@ -1861,7 +2024,6 @@ onmessage = (e) => {
 			postMessage({id:id, response:editList});
 			sendVisibleCells();
 			break;
-		case "next": stepSimulation(); break;
 		case "move":
 			view = e.data.view;
 			if(!runningSimulation)sendVisibleCells();
@@ -1872,19 +2034,16 @@ onmessage = (e) => {
 			loop();
 			break;
 		case "stop": runningSimulation = false; break;
-		case "reset": reset(); break;
-		case "undo": undo(); break;
-		case "redo": redo(); break;
 		case "import":
 			console.time("import RLE");
 			postMessage({id:e.data.id, response:importRLE(e.data.args)});
 			console.timeEnd("import RLE"); 
 			sendVisibleCells();
 			break;
-		case "export":
+		case "export":{
 			console.time("export RLE"); 
-      let inputPattern=[[]];
-      switch(inputPattern){
+      let pattern=[[]];
+      switch(pattern){
         case "grid":
         break;
         case "copyslot":
@@ -1898,9 +2057,10 @@ onmessage = (e) => {
         case "LZ77":
         break;
       }
-			postMessage({id:e.data.id, response:patternToRLE(readPattern(...e.data.area, GRID))});
+			postMessage({id:e.data.id, response:patternToRLE(readPattern(e.data.area))});
 			console.timeEnd("export RLE"); 
 			break;
+    }
 		case "setGrid":
 			console.time("changing GRID type"); 
 			console.log(e.data);
@@ -1908,10 +2068,13 @@ onmessage = (e) => {
 			console.timeEnd("changing GRID type"); 
 			break;
 		case "copy":
-		case "cut":
-			area = [e.data.area.top, e.data.area.right, e.data.area.bottom, e.data.area.left];
-			postMessage({id:e.data.id, response:readPattern(...area, GRID)});
+		case "cut":{
+      let pattern=readPattern(e.data.area);
+			postMessage({id:e.data.id, response:pattern});
+      clipboard[e.data.clipboard]=pattern;
+      console.log(pattern);
 			if(e.data.type==="copy")break;
+    }
 		case "clear":
       let clearedArray = new Array(e.data.area.right-e.data.area.left);
       for(let i=0; i< clearedArray.length; i++){
@@ -1923,11 +2086,11 @@ onmessage = (e) => {
       break;
 		case "invert":
 		case "increment":
-			let pattern = readPattern(e.data.area.top-1,e.data.area.right+1,e.data.area.bottom+1,e.data.area.left-1, GRID);
+			let pattern = readPattern(new Area(e.data.area.top-1,e.data.area.right+1,e.data.area.bottom+1,e.data.area.left-1), GRID);
       if(e.data.type==="increment")
         currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top, iteratePattern(pattern,1,pattern.length-1,pattern[0].length-1,1));
       if(e.data.type==="invert"){
-        let invertedArea=readPattern(e.data.area.top, e.data.area.right, e.data.area.bottom, e.data.area.left);
+        let invertedArea=readPattern(e.data.area);
 
         for(let i=0; i<invertedArea.length; i++){
           for(let j=0; j<invertedArea[0].length; j++){
@@ -1958,28 +2121,13 @@ onmessage = (e) => {
 		case "write":
 			console.time("write pattern");
       // GRID.head = widenTree({top:e.data.args[1], right:e.data.args[0] + e.data.args[2][0].length, bottom:e.data.args[1] + e.data.args[2].length, left:e.data.args[0]});
-			currentEvent=writePatternAndSave(...e.data.args);
+			currentEvent=writePatternAndSave(e.data.args[0],e.data.args[1],clipboard[e.data.args[2]]);
 			postMessage({id:e.data.id});
 			console.timeEnd("write pattern");
 			sendVisibleCells();
 			break;
-		case "getBounds":
-			if(GRID.type===0){
-				let area = [
-					getTopBorder(GRID.head)/2-0.5,
-					getRightBorder(GRID.head)/2+0.5,
-					getBottomBorder(GRID.head)/2+0.5,
-					getLeftBorder(GRID.head)/2-0.5];
-				postMessage({id:e.data.id, response:area});
-			}else{
-				let area = [
-					GRID.finiteArea.top,
-					GRID.finiteArea.right,
-					GRID.finiteArea.bottom,
-					GRID.finiteArea.left];
-				postMessage({id:e.data.id, response:area});
-			}
-			break;
+    default:
+      self[e.data.type](...e.data.args);
 	}
 }
 
@@ -2020,7 +2168,7 @@ function sendVisibleCells(){
 		       leftBorder = Math.max(view.x+30-30/view.z-1, -GRID.head.distance/4);
 		let visiblePattern = [[]];
     if(rightBorder-leftBorder>0&&bottomBorder-topBorder>0)
-      visiblePattern = readPatternFromTree(GRID, Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder));
+      visiblePattern = readPatternFromTree(new Area(Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder)), GRID);
 		postMessage({type:"render", top:topBorder, left:leftBorder, pattern:visiblePattern, population:GRID.head.population, generation:genCount, backgroundState:GRID.backgroundState});
 	}else{
 		const visiblePattern = GRID.finiteArray;

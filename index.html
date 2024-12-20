@@ -164,19 +164,19 @@
 					<div class="dropdown">
 						<button class="dropdown-button"></button>
 						<div class="dropdown-content updateOnClick">
-							<button onclick="changeAction(this);">Reset</button>
-							<button onclick="changeAction(this);">Shift</button>
-							<button onclick="changeAction(this);">Randomize</button>
-							<button onclick="changeAction(this);">Save Pattern</button>
-							<button onclick="changeAction(this);">Generate Salvo</button>
-							<button onclick="changeAction(this);">Increment Area</button>
+							<button onclick="changeAction(this,'reset');">Reset</button>
+							<button onclick="changeAction(this,'shift');">Shift</button>
+							<button onclick="changeAction(this,'randomize');">Randomize</button>
+							<button onclick="changeAction(this,'savePattern');">Save Pattern</button>
+							<button onclick="changeAction(this,'generateSalvo');">Generate Salvo</button>
+							<button onclick="changeAction(this,'incrementArea');">Increment Area</button>
 						</div>
 					</div>
 				</div>
 			</div>
 			<h3>Miscellaneous Options:</h3>
 			<div class="tab">
-				<button onclick="identify()" id="identify" class="mainButton">Identify Pattern</button>
+					<button onclick="worker.postMessage({type:'identify', args:[selectArea]})" id="identify" class="mainButton">Identify Pattern</button>
 				<div id="identifyOutput"></div>
 				<br>
 				<input type="checkbox" id="darkTheme" onclick="setDark()" checked>
