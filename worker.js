@@ -38,7 +38,7 @@ class EventNode {
 				this.head=GRID.head;
 			}else{
 				this.finiteArea={left:GRID.finiteArea.left, top:GRID.finiteArea.top, margin:GRID.finiteArea.margin};
-				this.finiteArray=patternToRLE(GRID.finiteArray);
+				this.finiteArray=patternToRLE(GRID.finiteArray, "gbs");
 			}
 			this.type=GRID.type;
 			this.backgroundState=GRID.backgroundState;
@@ -75,8 +75,6 @@ var
 	drawnState=-1,
 	//list of empty nodes with different states for B0.
 	emptyNodes=[],
-  //format for rules to be exported in, where ""=whatever was input
-  exportFormat="BSG",
 	//state of the grid
 	GRID={
 		//which kind of grid is being used
@@ -1406,9 +1404,10 @@ function rleToPattern(input,width,height){
 	return array;
 }
 
-function patternToRLE(pattern){
-	if(pattern.length===0)return `x = 0, y = 0, rule = ${exportRulestring(exportFormat)}\n!`;
-	let RLE=`x = ${pattern.length}, y = ${pattern[0].length}, rule = ${exportRulestring(exportFormat)}`, numberOfAdjacentLetters=0;
+function patternToRLE(pattern, ruleFormat){
+	console.log(exportRulestring(ruleFormat));
+	if(pattern.length===0)return `x = 0, y = 0, rule = ${exportRulestring(ruleFormat)}\n!`;
+	let RLE=`x = ${pattern.length}, y = ${pattern[0].length}, rule = ${exportRulestring(ruleFormat)}`, numberOfAdjacentLetters=0;
 	if(GRID.type===1)RLE+=`:P${pattern.length},${pattern[0].length}`;
 	if(GRID.type===2)RLE+=`:T${pattern.length},${pattern[0].length}`;
 	RLE+="\n";
@@ -1916,12 +1915,14 @@ function parseRulestring(ruleText){
 
 function exportRulestring(format){
   const hasTwoStates = ruleMetadata.numberOfStates===2;
-  const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)\/G([0-9]*)/g;
+  const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)(\/G([0-9]*))?/g;
+	console.log(format, ruleMetadata.string);
   switch(format){
     case "BSG": return ruleMetadata.string.replace(regex, hasTwoStates?"B$2/S$2":"B$2/S$1/G$3");
     case "gbs": return ruleMetadata.string.replace(regex, hasTwoStates?"b$1s$2":"g$3b$1s$2");
     case "sbg": return ruleMetadata.string.replace(regex, hasTwoStates?"$2/$1":"$2/$1/$3");
   }
+	throw new Error("invalid format");
 }
 
 function clean(dirtyString){
@@ -2004,7 +2005,6 @@ onmessage = (e) => {
 	switch(e.data.type){
 		case "setRule": setRule(e.data.args); break;
     case "setSpeed": simulationSpeed = e.data.value; console.log(simulationSpeed); break;
-    case "exportFormat": exportFormat = e.data.value; break;
 		case "writeCell":
       console.log("received");
 			if(GRID.type===0){
@@ -2043,21 +2043,21 @@ onmessage = (e) => {
 		case "export":{
 			console.time("export RLE"); 
       let pattern=[[]];
-      switch(pattern){
-        case "grid":
+			console.log(e.data);
+      switch(e.data.sourcePattern){
+        case "Grid":
+				pattern = readPattern(new Area(...calculateBounds(GRID)));
         break;
-        case "copyslot":
-        break;
-        case "marker":
-        break;
+				default:
+				pattern = readPattern(e.data.sourcePattern);
       }
-      switch(outputFormat){
+      switch(e.data.textFormat){
         case "RLE":
+					postMessage({id:e.data.id, response:patternToRLE(pattern, e.data.ruleFormat)});
         break;
         case "LZ77":
         break;
       }
-			postMessage({id:e.data.id, response:patternToRLE(readPattern(e.data.area))});
 			console.timeEnd("export RLE"); 
 			break;
     }

@@ -194,6 +194,8 @@ var
 	detailedCanvas=true,
 	//ID of the thing being dragged(0=nothing,-4 to -1 and 4 to 4 for each corner)
 	edgeBeingDragged=0,
+	//what format should the rulestring be exported as
+	exportFormat="BSG",
 	//whether the cursor draws a specific state or changes automatically;-1=auto, other #s =state
 	drawMode=1,
 	//list of cells drawn in one action
@@ -2223,10 +2225,15 @@ function resetClipboard(){
 
 function submitFormat(self) {
   console.log(self.id);
-  worker.postMessage({type: "exportFormat", value:self.checked?self.id:""});
 	[...self.parentElement.children].forEach(element=>{
 		if(element!==self)element.checked=false
 	});
+}
+
+function getFormat(){
+	const formats = ["BSG", "gbs", "sbg"];
+	for(const format of formats)if(document.getElementById(format).checked)return format;
+	throw new Error("no valid format found");
 }
 
 function importRLE(rleText){
@@ -2248,8 +2255,7 @@ function importRLE(rleText){
 
 function exportRLE(){
 	// return patternToRLE(exportPattern().pattern);
-	worker.postMessage({type:"getBounds", args:[]})
-		.then((response) => worker.postMessage({type:"export", area:response}))
+	worker.postMessage({type:"export", ruleFormat:getFormat(), textFormat:"RLE", sourcePattern:selectArea.isActive?selectArea:"Grid"})
 		.then((response) => document.getElementById('rle').value=response);
 }
 
