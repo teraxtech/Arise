@@ -497,6 +497,7 @@ function exportSetting(){
 
 	if(GRID.backgroundState!==0)text+="&background="+GRID.backgroundState;
 
+	const stepSize = parseInt(document.getElementById("step").value);
 	if(stepSize!==1)text+="&step="+stepSize;
 
 	if(activeClipboard!==1)text+="&slot="+activeClipboard;
