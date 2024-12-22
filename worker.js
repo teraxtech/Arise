@@ -2161,8 +2161,11 @@ function loop(){
 		// }
     
 		stepSimulation();
-    requestAnimationFrame(loop);
-    // setTimeout(loop, 0.1*(100-simulationSpeed)*(100-simulationSpeed));
+		if(simulationSpeed<99){
+			setTimeout(loop, 0.1*(100-simulationSpeed)*(100-simulationSpeed));
+		}else{
+			requestAnimationFrame(loop);
+		}
 	}
 }
 
