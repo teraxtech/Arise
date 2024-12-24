@@ -1915,10 +1915,10 @@ function parseRulestring(ruleText){
 
 function exportRulestring(format){
   const hasTwoStates = ruleMetadata.numberOfStates===2;
-  const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)(\/G([0-9]*))?/g;
-	console.log(format, ruleMetadata.string);
+  const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)(?:\/G([0-9]*))?/g;
+	console.log(hasTwoStates, format, ruleMetadata.string);
   switch(format){
-    case "BSG": return ruleMetadata.string.replace(regex, hasTwoStates?"B$2/S$2":"B$2/S$1/G$3");
+    case "BSG": return ruleMetadata.string.replace(regex, hasTwoStates?"B$1/S$2":"B$1/S$2/G$3");
     case "gbs": return ruleMetadata.string.replace(regex, hasTwoStates?"b$1s$2":"g$3b$1s$2");
     case "sbg": return ruleMetadata.string.replace(regex, hasTwoStates?"$2/$1":"$2/$1/$3");
   }

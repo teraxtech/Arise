@@ -945,7 +945,7 @@ function setColors(){
 			}else if(displayedState===1){
 				palette[cellState] = darkMode?"#F1F1F1":"#000000";
 			}else{
-				let color=240/ruleMetadata.numberOfStates*darkMode?(ruleMetadata.numberOfStates-displayedState):(displayedState-1);
+				let color=240/ruleMetadata.numberOfStates*(darkMode?(ruleMetadata.numberOfStates-displayedState):(displayedState-1));
 				palette[cellState] = `rgb(${color},${color},${color})`;
 			}
     }
@@ -1492,6 +1492,7 @@ function editArea(action, area=selectArea){
         clipboard[activeClipboard].shipInfo={dx:null,dy:null,phases:[],period:0};
         selectArea.isActive=false;
       }
+			render();
     });
 		setActionMenu();
 		render();
