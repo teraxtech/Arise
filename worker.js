@@ -57,7 +57,6 @@ class EventNode {
 					this.paste=data;
 				}
 				this.action=name;
-				console.log(name);
 			}
 			this.time=arguments[1];
 		}
@@ -440,6 +439,7 @@ function readPatternFromTree(area, tree){
 function readPattern(area){
 	let pattern=new Array(area.right-area.left);
 	if(GRID.type===0){
+		GRID.head=widenTree(area,GRID.head);
 		return readPatternFromTree(area, GRID);
 	}else{
 		const finiteGrid=(arguments[4]!==undefined)?arguments[4].finiteArray:GRID.finiteArray;
@@ -983,11 +983,9 @@ function writePatternAndSave(xPosition,yPosition,pattern){
 				}
 			}
 		}*/
-    console.log(pattern);
 		for (let i = 0; i < pattern.length; i++) {
 			for (let j = 0; j < pattern[0].length; j++) {
 				if(j+yPosition>=GRID.finiteArea.top&&i+xPosition<GRID.finiteArea.right-2*GRID.finiteArea.margin&&j+yPosition<GRID.finiteArea.bottom-2*GRID.finiteArea.margin&&i+xPosition>=GRID.finiteArea.left){
-          console.log(i,j);
 					GRID.finiteArray[i+xPosition-GRID.finiteArea.left+GRID.finiteArea.margin][j+yPosition-GRID.finiteArea.top+GRID.finiteArea.margin]=pattern[i][j];
 					somethingChanged=true;
 				}
@@ -1287,6 +1285,7 @@ function importRLE(rleText){
 
 	const parsedRLE = parseRLE(rleText);
 
+	console.log(parsedRLE);
 	if(rleText&&parsedRLE.pattern){
 		if(ruleMetadata.string!==parsedRLE.rule)setRule(parsedRLE.rule);
 
@@ -1303,7 +1302,8 @@ function importRLE(rleText){
 				top=-Math.ceil((parsedRLE.yWrap|parsedRLE.height|parsedRLE.pattern[0].length)/2);
     console.log(top, left);
 
-		if(GRID.head.value===0&GRID.type===0){
+		const writeDirectlyToGRID = GRID.head.value===0&GRID.type===0;
+		if(writeDirectlyToGRID){
 			let previousPattern=new Array(parsedRLE.pattern.length);
 			for(let i=0;i<previousPattern.length;i++){
 				previousPattern[i]=new Array(parsedRLE.pattern[0].length).fill(0);
@@ -1312,20 +1312,10 @@ function importRLE(rleText){
 			//TODO: rewrite
 			// if(socket)socket.emit("paste", Date.now(), {newPatt:[-Math.ceil(parsedRLE.pattern.length/2),-Math.ceil(parsedRLE.pattern[0].length/2),parsedRLE.pattern], oldPatt:[-Math.ceil(parsedRLE.pattern.length/2),-Math.ceil(parsedRLE.pattern[0].length/2),previousPattern]});
 			console.log(parsedRLE.pattern, top, left);
-			if(/[PT]/.test(parsedRLE.type)){
-				importPattern(parsedRLE.pattern,parsedRLE.type,top,left,parsedRLE.xWrap,parsedRLE.yWrap);
-				// fitView();
-			}else{
-				importPattern(parsedRLE.pattern,parsedRLE.type,top,left);
-				// fitView(top, left+parsedRLE.width, top+parsedRLE.height, left);
-			}
+			importPattern(parsedRLE.pattern,parsedRLE.type,top,left,parsedRLE.xWrap,parsedRLE.yWrap);
 
 			currentEvent=new EventNode(currentEvent, "import RLE");
-			console.log(rule);
 			//TODO: send state of grid to other clients
-
-			console.log(GRID.head);
-			return parsedRLE;
 		}else{
 			activeClipboard=0;
 			clipboard[activeClipboard].pattern=parsedRLE.pattern;
@@ -1335,8 +1325,8 @@ function importRLE(rleText){
 			pasteArea.top=-Math.ceil(parsedRLE.pattern[0].length/2);
 			//TODO: rewrite
 			// setActionMenu();
-			return parsedRLE.pattern;
 		}
+		return {pattern:parsedRLE.pattern, rule:parsedRLE.rule, writeDirectly:writeDirectlyToGRID, view:calculateBounds(GRID)};
 	}
 	//TODO: replace render here
 }
@@ -1355,20 +1345,25 @@ function parseRLE(input){
 	parsedRLE.height=parseInt(parsedRLE.height)||parsedRLE.pattern[0].length;
 	parsedRLE.xWrap=parseInt(parsedRLE.xWrap);
 	parsedRLE.yWrap=parseInt(parsedRLE.yWrap);
+	if(parsedRLE.type===undefined)parsedRLE.type="";
 
 	return parsedRLE;
 }
 
 function rleToPattern(input,width,height){
-	//check for any invalid chars in rle
-	let unsupportedChars = input.match(/(?![0-9A-Z\.bo\$!])./g);
-	if(unsupportedChars!==null){
-    postMessage({type: "alert", value:"Unsupported Character In Rule: "+unsupportedChars});
-		return array;
-	}
-
 	//Array which will contain the pattern
 	let array = new2dArray(width, height);
+
+	////check for any invalid chars in rle
+	//let rle = input.match(/^.*(?=!)/g)
+	//
+	//console.log(rle);
+	//let unsupportedChars = rle.match(/(?![0-9A-Z\.bo\$])/g);
+	//if(unsupportedChars!==null){
+	//   postMessage({type: "alert", value:"Unsupported Character In RLE: "+unsupportedChars});
+	//	return array;
+	//}
+
 	//Coordinates of the cell currently being read from the rle
 	let xCoord=0, yCoord=0;
 	//Split the input into parts eg. ["2b", "o", "2$", ...]
@@ -1405,7 +1400,6 @@ function rleToPattern(input,width,height){
 }
 
 function patternToRLE(pattern, ruleFormat){
-	console.log(exportRulestring(ruleFormat));
 	if(pattern.length===0)return `x = 0, y = 0, rule = ${exportRulestring(ruleFormat)}\n!`;
 	let RLE=`x = ${pattern.length}, y = ${pattern[0].length}, rule = ${exportRulestring(ruleFormat)}`, numberOfAdjacentLetters=0;
 	if(GRID.type===1)RLE+=`:P${pattern.length},${pattern[0].length}`;
@@ -1728,7 +1722,7 @@ function getLeftBorder(node){
 }
 
 function getBounds(){
-  postMessage({id:e.data.id, response:calculateBounds(GRID)});
+  respond(calculateBounds(GRID));
 }
 
 function calculateBounds(gridObj){
@@ -1916,7 +1910,6 @@ function parseRulestring(ruleText){
 function exportRulestring(format){
   const hasTwoStates = ruleMetadata.numberOfStates===2;
   const regex = /B([0-8aceijknqrtwyz-]*)\/S([0-8aceijknqrtwyz-]*)(?:\/G([0-9]*))?/g;
-	console.log(hasTwoStates, format, ruleMetadata.string);
   switch(format){
     case "BSG": return ruleMetadata.string.replace(regex, hasTwoStates?"B$1/S$2":"B$1/S$2/G$3");
     case "gbs": return ruleMetadata.string.replace(regex, hasTwoStates?"b$1s$2":"g$3b$1s$2");
@@ -2002,6 +1995,9 @@ function clean(dirtyString){
 var runningSimulation = false;
 var rendering = false;
 onmessage = (e) => {
+	function respond(response){
+		postMessage({id:e.data.id, response:response});
+	}
 	switch(e.data.type){
 		case "setRule": setRule(e.data.args); break;
     case "setSpeed": simulationSpeed = e.data.value; console.log(simulationSpeed); break;
@@ -2009,9 +2005,9 @@ onmessage = (e) => {
       console.log("received");
 			if(GRID.type===0){
         expandGridToCell(e.data.args[0], e.data.args[1]);//technically redundant, writeCell() does it, might help with draw latency
-        postMessage({id:e.data.id, response:{index: e.data.args[2], state:getCellValue(GRID.head, e.data.args[0], e.data.args[1])}});
+        respond({index: e.data.args[2], state:getCellValue(GRID.head, e.data.args[0], e.data.args[1])});
       }else{
-        postMessage({id:e.data.id, response:{index: e.data.args[2], state:GRID.finiteArray[e.data.args[0]-GRID.finiteArea.left+GRID.finiteArea.margin][e.data.args[1]-GRID.finiteArea.top+GRID.finiteArea.margin]}});
+        respond({index: e.data.args[2], state:GRID.finiteArray[e.data.args[0]-GRID.finiteArea.left+GRID.finiteArea.margin][e.data.args[1]-GRID.finiteArea.top+GRID.finiteArea.margin]});
       }
 			sendVisibleCells();
 			break;
@@ -2036,44 +2032,55 @@ onmessage = (e) => {
 		case "stop": runningSimulation = false; break;
 		case "import":
 			console.time("import RLE");
-			postMessage({id:e.data.id, response:importRLE(e.data.args)});
+			respond(importRLE(e.data.args));
 			console.timeEnd("import RLE"); 
 			sendVisibleCells();
 			break;
 		case "export":{
-			console.time("export RLE"); 
       let pattern=[[]];
-			console.log(e.data);
-      switch(e.data.sourcePattern){
+      switch(e.data.inputPattern){
         case "Grid":
 				pattern = readPattern(new Area(...calculateBounds(GRID)));
         break;
 				default:
-				pattern = readPattern(e.data.sourcePattern);
+				if(e.data.inputPattern.startsWith("clipboard")){
+					pattern=clipboard[parseInt(e.data.inputPattern.substr(9))-1].pattern;
+				}else{
+					pattern=readPattern(e.data.inputPattern);
+				}
       }
-      switch(e.data.textFormat){
+      switch(e.data.outputFormat){
         case "RLE":
-					postMessage({id:e.data.id, response:patternToRLE(pattern, e.data.ruleFormat)});
+					respond(patternToRLE(pattern, e.data.ruleFormat));
         break;
         case "LZ77":
+					respond(baseNToLZ77(patternToBaseN(pattern)));
         break;
       }
-			console.timeEnd("export RLE"); 
 			break;
     }
 		case "setGrid":
 			console.time("changing GRID type"); 
 			console.log(e.data);
-			if(GRID.type!==e.data.grid)postMessage({id:e.data.id, response:setGridType(e.data.grid)});
+			if(GRID.type!==e.data.grid)respond(setGridType(e.data.grid));
 			console.timeEnd("changing GRID type"); 
 			break;
+		case "sendEntireGrid":{
+			if(resetEvent===null){
+				console.log(calculateBounds(GRID));
+				respond({type:GRID.type, bounds:GRID.finiteArea, data:readPattern(new Area(...calculateBounds(GRID)))});
+			}else{
+				respond({type:resetEvent.type, bounds:GRID.finiteArea, data:resetEvent.finiteArray});
+			}
+			break;
+		}
 		case "transformClippedPattern":
 			clipboard[e.data.clipboard].pattern=e.data.pattern;
 			break;
 		case "copy":
 		case "cut":{
       let pattern=readPattern(e.data.area);
-			postMessage({id:e.data.id, response:pattern});
+			respond(pattern);
       clipboard[e.data.clipboard].pattern=pattern;
       console.log(pattern);
 			if(e.data.type==="copy")break;
@@ -2088,7 +2095,7 @@ onmessage = (e) => {
 			sendVisibleCells();
       break;
 		case "invert":
-		case "increment":
+		case "increment":{
 			let pattern = readPattern(new Area(e.data.area.top-1,e.data.area.right+1,e.data.area.bottom+1,e.data.area.left-1), GRID);
       if(e.data.type==="increment")
         currentEvent=writePatternAndSave(e.data.area.left,e.data.area.top, iteratePattern(pattern,1,pattern.length-1,pattern[0].length-1,1));
@@ -2105,6 +2112,7 @@ onmessage = (e) => {
       }
 			sendVisibleCells();
       break;
+		}
 		case "randomize":
       let randomArray=new Array(e.data.area.right-e.data.area.left);
       for(let i=0;i<randomArray.length;i++){
@@ -2122,15 +2130,11 @@ onmessage = (e) => {
       sendVisibleCells();
       break;
 		case "write":
-			console.time("write pattern");
-      // GRID.head = widenTree({top:e.data.args[1], right:e.data.args[0] + e.data.args[2][0].length, bottom:e.data.args[1] + e.data.args[2].length, left:e.data.args[0]});
-			currentEvent=writePatternAndSave(e.data.args[0],e.data.args[1],clipboard[e.data.args[2]].pattern);
-			postMessage({id:e.data.id});
-			console.timeEnd("write pattern");
+			currentEvent=writePatternAndSave(e.data.args[0],e.data.args[1],isNaN(e.data.args[2])?e.data.args[2]:clipboard[e.data.args[2]].pattern);
 			sendVisibleCells();
 			break;
 		case "getBounds":
-			postMessage({id:e.data.id, response:calculateBounds(GRID)});
+			respond(calculateBounds(GRID));
 			break;
     default:
       self[e.data.type](...e.data.args);
@@ -2169,12 +2173,14 @@ function loop(){
 	}
 }
 
+//TODO: rewrite to use transferrable objects
 function sendVisibleCells(){
 	if(GRID.type === 0){
 		const  topBorder = Math.max(view.y+20-20/view.z-1, -GRID.head.distance/4),
 		       rightBorder = Math.min(view.x+30+30/view.z+1, GRID.head.distance/4),
 		       bottomBorder = Math.min(view.y+20+20/view.z+1, GRID.head.distance/4),
 		       leftBorder = Math.max(view.x+30-30/view.z-1, -GRID.head.distance/4);
+		console.log(topBorder, rightBorder, bottomBorder, leftBorder);
 		let visiblePattern = [[]];
     if(rightBorder-leftBorder>0&&bottomBorder-topBorder>0)
       visiblePattern = readPatternFromTree(new Area(Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder)), GRID);

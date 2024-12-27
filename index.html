@@ -199,7 +199,7 @@
 
 		<div id="rleArea">
 			<button class="mainButton" onclick="importRLE(document.getElementById('rle').value)">Import RLE</button>
-			<button class="mainButton" onclick="exportRLE()">Export RLE</button>
+			<button class="mainButton" onclick="exportRLE().then((response) => document.getElementById('rle').value=response)">Export RLE</button>
 			<button class="mainButton" onclick="clearRLE()">Clear</button>
 			<button class="mainButton" onclick="copyRLE()">Copy</button>
 			<button class="mainButton" onclick="download()">Download</button>

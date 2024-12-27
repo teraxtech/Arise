@@ -108,6 +108,7 @@ class Thread{
 		return new Promise((resolve, reject) => {
 			const message = { id, ...action };
 			this.worker.postMessage(message);
+			//store a callback for the funtion which handles the response from the worker
 			this.actionHandlerMap[id] = (response) => {
 				resolve(response);
 			};
@@ -185,7 +186,7 @@ var
 	//width of each cell
 	cellWidth=20,
 	//copy paste clipboard
-	clipboard=Array.from({length: 6}, () => new Area()),
+	clipboard=Array.from({length: 3}, () => new Area()),
 	//canvas context
 	ctx=canvas.getContext("2d"),
 	//this determines if the UI is using the dark theme.
@@ -485,9 +486,9 @@ function findElementContaining(element,str){
 	}
 }
 
-function exportSetting(){
+async function exportSetting(){
 	let text=`${window.location.protocol}//${window.location.host}
-		${window.location.pathname}?v=0.4.4`;
+		${window.location.pathname}?v=0.5.0`;
 
   //TODO: rewrite
 	// if(resetEvent!==null)setEvent(resetEvent);
@@ -498,26 +499,30 @@ function exportSetting(){
 	if(GRID.backgroundState!==0)text+="&background="+GRID.backgroundState;
 
 	const stepSize = parseInt(document.getElementById("step").value);
-	if(stepSize!==1)text+="&step="+stepSize;
+	if(stepSize&&stepSize!==1)text+="&step="+stepSize;
 
 	if(activeClipboard!==1)text+="&slot="+activeClipboard;
 
 	if(clipboard.length>3||clipboard[1]){
-		text+="&slots=";
-		for(let i=1;i<clipboard.length-1;i++){
-			if(i>1)text+=".";
+		let segments = new Array(clipboard.length).fill("");
+		Promise.all(clipboard.map((value, index) => worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"clipboard"+(index+1)}).then((response) => {
+			const i=index+1;
+			if(i>1)segments[index]+=".";
 			if(clipboard[i]&&clipboard[i].pattern.length>0){
-				text+=`${clipboard[i].pattern.length}.${clipboard[i].pattern[0].length}.${baseNToLZ77(patternToBaseN(clipboard[i].pattern))}.`;
-				if(clipboard[i].shipInfo.dx!==null){
-					text+=`${clipboard[i].shipInfo.phases[0].length},${clipboard[i].shipInfo.phases[0][0].length},${clipboard[i].shipInfo.dx},${clipboard[i].shipInfo.dy},${clipboard[i].shipInfo.shipOffset.x},${clipboard[i].shipInfo.shipOffset.y}`;
-					for(let j=0;j<clipboard[i].shipInfo.phases.length;j++){
-						text+=","+baseNToLZ77(patternToBaseN(clipboard[i].shipInfo.phases[j]));
-					}
-				}
+				segments[index]+=`${clipboard[i].pattern.length}.${clipboard[i].pattern[0].length}.${response}.`;
+				//TODO: rewrite to use postMessage
+				// if(clipboard[i].shipInfo.dx!==null){
+				// 	text+=`${clipboard[i].shipInfo.phases[0].length},${clipboard[i].shipInfo.phases[0][0].length},${clipboard[i].shipInfo.dx},${clipboard[i].shipInfo.dy},${clipboard[i].shipInfo.shipOffset.x},${clipboard[i].shipInfo.shipOffset.y}`;
+				// 	for(let j=0;j<clipboard[i].shipInfo.phases.length;j++){
+				// 		text+=","+baseNToLZ77(patternToBaseN(clipboard[i].shipInfo.phases[j]));
+				// 	}
+				// }
 			}else{
-				text+="0.0..";
+				segments[index]+="0.0..";
 			}
-		}
+		}))).then((response) => {
+			text+="&slots="+segments.join("");
+		});
 	}
 
 	if(selectArea.isActive)text+=`&selA=${selectArea.top}.${selectArea.right}.${selectArea.bottom}.${selectArea.left}`;
@@ -532,16 +537,14 @@ function exportSetting(){
 	
 	let area, patternCode;
 	if(GRID.type===0){
-		if(GRID.head.value!==0){
-			const buffer=GRID.head;
-			if(resetEvent!==null)GRID.head=resetEvent.head;
-			area=[
-				(getTopBorder(GRID.head)??0)/2-0.5,(getRightBorder(GRID.head)??0)/2+0.5,
-				(getBottomBorder(GRID.head)??0)/2+0.5,(getLeftBorder(GRID.head)??0)/2-0.5];
-			patternCode=baseNToLZ77(patternToBaseN(readPattern(...area,GRID)));
-			GRID.head=buffer;
-			text+=`&pat=${area.join(".")}.${patternCode}`;
-		}
+		console.log("type0");
+		Promise.all([
+			worker.postMessage({type: "getBounds"}),
+			worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"Grid"})
+		]).then((responses) => {
+			text+=`&pat=${responses[0].join(".")}.${responses[1]}`;
+			console.log("type0write");
+		})
 	}else{
 		area=[GRID.finiteArea.top,GRID.finiteArea.right,GRID.finiteArea.bottom,GRID.finiteArea.left];
 		patternCode=baseNToLZ77(patternToBaseN(GRID.finiteArray));
@@ -616,13 +619,11 @@ function drawCell(){
 window.addEventListener("copy", (event) => {
 	if (/[^input|textarea|select]/i.test(document.activeElement.tagName)) {
 		if(event.cancelable)event.preventDefault();
-		navigator.clipboard.writeText(exportRLE()).then(
-			() => {
-				console.log("successfully copied");
-			},
-			() => {
-				alert("failed to copy pattern to clipboard");
-			}
+		exportRLE().then((response) => {
+			return navigator.clipboard.writeText(response);
+		}).then(
+			() => { console.log("successfully copied"); },
+			() => { alert("failed to copy pattern to clipboard"); }
 		);
 	}
 });
@@ -1172,7 +1173,7 @@ function setSalvoIteration(optionElement, value){
 			clearedArray[i].fill(0);
 		}
 		const previousPattern=readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left);
-		writePattern(salvoArea.left,salvoArea.top, clearedArray, GRID);
+		worker.postMessage({type:"write", args: [salvoArea.left,salvoArea.top, clearedArray]});
 
 		for(let i=0;i<salvoInfo.progress.slice(-1)[0].delay.length;i++){
 			let LeftPosition=salvoInfo.progress.slice(-1)[0].delay[i]/shipInfo.period;
@@ -1180,7 +1181,7 @@ function setSalvoIteration(optionElement, value){
 			const xPosition=(areaLeft-Math.ceil(LeftPosition)*shipInfo.dx+0*Math.min(0,shipInfo.dx));
 			const yPosition=(areaTop-Math.ceil(TopPosition)*shipInfo.dy+0*Math.min(0,shipInfo.dy));
 			const pattern=shipInfo.phases[mod(-salvoInfo.progress.slice(-1)[0].delay[i],shipInfo.period)];
-			writePattern(xPosition,yPosition, pattern, GRID);
+			worker.postMessage({type:"write", args: [xPosition,yPosition, pattern]});
 		}
 		
 		if(socket)socket.emit("paste", Date.now(), {newPatt:[salvoArea.left,salvoArea.top,readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left)], oldPatt:[salvoArea.left,salvoArea.top,previousPattern]});
@@ -1315,7 +1316,7 @@ function changeAction(element){
 		name: "Save Pattern",
 		action: () => {
 			if(document.getElementById("rle").value==="")document.getElementById("rle").value="x = 0, y = 0, rule = "+exportRulestring()+"\n";
-			document.getElementById("rle").value=appendRLE(exportRLE());
+			document.getElementById("rle").value=exportRLE().then((response) => appendRLE(response));
 		}
 	},{
 		name: "Generate Salvo",
@@ -2240,25 +2241,24 @@ function getFormat(){
 
 function importRLE(rleText){
 	worker.postMessage({type:"import",args:rleText}).then((response) => {
-		if("type" in response){
-			document.getElementById("rule").value=response.rule;
-		}else{//if response is just the pattern
+		if(response.writeDirectly){
+			setView(...response.view);
+		}else{
 			activeClipboard=0;
-			clipboard[activeClipboard].pattern=response;
+			clipboard[activeClipboard].pattern=response.pattern;
 			editMode=1;
 			pasteArea.isActive=true;
-			pasteArea.left=-Math.ceil(response.length/2);
-			pasteArea.top=-Math.ceil(response[0].length/2);
+			pasteArea.left=-Math.ceil(response.pattern.length/2);
+			pasteArea.top=-Math.ceil(response.pattern[0].length/2);
       render();
 			setActionMenu();
 		}
+		document.getElementById("rule").value=response.rule;
 	});
 }
 
 function exportRLE(){
-	// return patternToRLE(exportPattern().pattern);
-	worker.postMessage({type:"export", ruleFormat:getFormat(), textFormat:"RLE", sourcePattern:selectArea.isActive?selectArea:"Grid"})
-		.then((response) => document.getElementById('rle').value=response);
+	return worker.postMessage({type:"export", ruleFormat:getFormat(), outputFormat:"RLE", inputPattern:selectArea.isActive?selectArea:"Grid"});
 }
 
 function clearRLE(){
@@ -2309,20 +2309,7 @@ if(socket)socket.on("relayRequestPosition", () => {
 
 if(socket)socket.on("relayRequestGrid", (id) => {
 	console.log("sending grid");
-	if(resetEvent===null){
-		if(GRID.type===0){
-			console.log(readPattern(-GRID.head.distance/4, GRID.head.distance/4, GRID.head.distance/4, -GRID.head.distance/4));
-			socket.emit("sendGrid",{type:GRID.type, finite:GRID.finiteArea, data:[-GRID.head.distance/4, -GRID.head.distance/4, readPattern(-GRID.head.distance/4, GRID.head.distance/4, GRID.head.distance/4, -GRID.head.distance/4)]}, id);
-		}else{
-			socket.emit("sendGrid",{type:GRID.type, finite:GRID.finiteArea, data:GRID.finiteArray}, id);
-		}
-	}else{
-		if(GRID.type===0){
-			socket.emit("sendGrid",{type:resetEvent.type, finite:GRID.finiteArea, data:[(getLeftBorder(GRID.head)??0)/2-0.5, (getTopBorder(GRID.head)??0)/2-0.5, readPattern((getTopBorder(GRID.head)??0)/2-0.5,(getRightBorder(GRID.head)??0)/2+0.5,(getBottomBorder(GRID.head)??0)/2+0.5,(getLeftBorder(GRID.head)??0)/2-0.5,resetEvent)]}, id);
-		}else{
-			socket.emit("sendGrid",{type:resetEvent.type, finite:GRID.finiteArea, data:resetEvent.finiteArray}, id);
-		}
-	}
+	worker.postMessage({type:"sendEntireGrid", args: []});
 	if(socket)socket.emit("rule", ruleMetadata.string);
 });
 
@@ -2337,46 +2324,45 @@ if(socket)socket.on("relaySendGrid", msg => {
 		console.log(GRID.finiteArea);
 	}else{
 		console.log(msg.data);
-		if(msg.data[2].length>0)writePattern(...msg.data, GRID);
+		if(msg.data[2].length>0)worker.postMessage({type:"write", args: [...msg.data]});
 	}
-	// TODO: replace render() here
 });
 
 if(socket)socket.on("deleteConnection", id => {
 	delete clientList[id];
-	// TODO: replace render() here
+	render();
 });
 
 if(socket)socket.on("relayPan", msg => {
 	clientList[msg.id].xPosition=msg.xPosition;
 	clientList[msg.id].yPosition=msg.yPosition;
-	// TODO: replace render() here
+	render();
 });
 
 if(socket)socket.on("relayZoom", msg => {
 	clientList[msg.id].zoom=msg.zoom;
-	// TODO: replace render() here
+	render();
 });
 
 if(socket)socket.on("relayDraw", (time, msg) => {
 	console.log(msg);
 	if(resetEvent===null){
 		for(let i=0;i<msg.length;i++){
-			writePattern(msg[i].x,msg[i].y,[[msg[i].newState]], GRID);
+			worker.postMessage({type:"write", args: [msg[i].x,msg[i].y,[[msg[i].newState]]]});
 		}
 	}else{
 		for(let i=0;i<msg.length;i++){
 			writePattern(msg[i].x,msg[i].y,[[msg[i].newState]],resetEvent);
 		}
 	}
-	// TODO: replace render() here
+	render();
 });
 
 if(socket)socket.on("relayUndoDraw", (time, msg) => {
 	console.log(msg);
 	if(resetEvent===null){
 		for(let i=0;i<msg.length;i++){
-			writePattern(msg[i].x,msg[i].y,[[msg[i].oldState]], GRID);
+			worker.postMessage({type:"write", args: [msg[i].x,msg[i].y,[[msg[i].oldState]]]});
 		}
 	}else{
 		for(let i=0;i<msg.length;i++){
@@ -2389,7 +2375,7 @@ if(socket)socket.on("relayUndoDraw", (time, msg) => {
 if(socket)socket.on("relayPaste", (time, msg) => {
 	console.log(msg);
 	if(resetEvent===null){
-		writePattern(...msg.newPatt, GRID);
+		worker.postMessage({type:"write", args: [...msg.newPatt]});
 	}else{
 		writePattern(...msg.newPatt, resetEvent);
 	}
@@ -2399,7 +2385,7 @@ if(socket)socket.on("relayPaste", (time, msg) => {
 if(socket)socket.on("relayUndoPaste", (time, msg) => {
 	console.log(msg);
 	if(resetEvent===null){
-		writePattern(...msg.oldPatt, GRID);
+		worker.postMessage({type:"write", args: [...msg.oldPatt]});
 	}else{
 		writePattern(...msg.newPatt, resetEvent);
 	}
@@ -2408,8 +2394,7 @@ if(socket)socket.on("relayUndoPaste", (time, msg) => {
 
 if(socket)socket.on("relayRule", msg => {
 	if(msg!==ruleMetadata.string){
-		setRule(msg);
-		resetHashtable();
+		worker.postMessage({type:"setRule",args:msg});
 		document.getElementById("rule").value=msg;
 		alert("rule changed to: "+msg);
 	}
