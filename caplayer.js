@@ -170,6 +170,19 @@ class Thread{
         document.getElementById("identifiedShip").height=bitmap.height;
         canvasElement.drawImage(bitmap,0,0);
         break;
+			case "shift":
+				console.log(e.data.args);
+				if(e.data.args[0]==="Select Area"){
+					selectArea.top+=parseInt(e.data.args[2]);
+					selectArea.right+=parseInt(e.data.args[1]);
+					selectArea.bottom+=parseInt(e.data.args[2]);
+					selectArea.left+=parseInt(e.data.args[1]);
+				}else if(e.data.args[0]==="Paste Area"&&pasteArea.isActive){
+					pasteArea.top+=parseInt(e.data.args[2]);
+					pasteArea.left+=parseInt(e.data.args[1]);
+					paste();
+				}
+				break;
 		}
 	}
 }
@@ -697,7 +710,6 @@ window.onkeydown = function(event){
   case 83: if(key[16])selectAll(); break;//s and shift
   case 84://t
     reset();
-    resetActions();
     break;
   case 86://v
     paste();
@@ -1074,194 +1086,11 @@ function setMenu(elementId, value){
 	document.getElementById(elementId).children[0].innerHTML=document.getElementById(elementId).children[1].children[value].innerHTML;
 }
 
-function searchAction(element){
-	let conditions=element.getElementsByClassName("condition");
-	if(conditions.length<=1)return -1;
-	for(let i=0;i<conditions.length-1;i++){
-		if((conditions[i].condition(element)!==true)===
-			(conditions[i].previousElementSibling.children[0].innerText==="When")){
-			return -2;
-		}
-	}
-	element.action(element);
-	return 0;
-}
-
-//TODO: add comments to this function
-function integerDomainToArray(string){
-	let values=string.split(",");
-	for(let i=0;i<values.length;i++){
-		if(values[i].split("").includes("-")){
-			const endPoints=values[i].split("-").map(num => parseInt(num));
-			let range=new Array(endPoints[1]-endPoints[0]+1);
-			for(let j=0;j<range.length;j++){
-				range[j]=endPoints[0]+j;
-			}
-			values[i]=range;
-		}else{
-			values[i]=parseInt(values[i]);
-		}
-	}
-	return values.flat();
-}
-
-function setSalvoIteration(optionElement, value){
-	let areaLeft, areaTop, salvoInfo=optionElement.info, shipInfo;
-	if(optionElement.children[3].children[0].innerHTML==="Active Paste"){
-		if(pasteArea.isActive===false)return -1;
-		if(clipboard[activeClipboard].shipInfo.dx===null){
-			clipboard[activeClipboard].shipInfo=findShip(clipboard[activeClipboard].pattern,pasteArea);
-			salvoInfo.minAppend=0;
-			salvoInfo.minIncrement=0;
-			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
-			shipInfo=clipboard[activeClipboard].shipInfo;
-			if(shipInfo.period===0){
-				alert("Couldn't find ship. I need an area that contains only the spaceship.");
-				return -1;
-			}else{
-				alert(`Found (${[Math.abs(shipInfo.dx),Math.abs(shipInfo.dy)]})c/${shipInfo.period}`);
-			}
-		}
-		shipInfo=clipboard[activeClipboard].shipInfo;
-		//location of ship within the paste area
-		areaLeft=pasteArea.left+shipInfo.shipOffset.x;
-		areaTop=pasteArea.top+shipInfo.shipOffset.y;
-	}else if(optionElement.children[3].children[0].innerHTML.match(/Marker .+/)){
-		const marker=markers[parseInt(optionElement.children[3].children[0].innerHTML.slice(7))-1];
-		if(marker.isActive===0)return -1;
-		if(marker.shipInfo.dx===null){
-			marker.shipInfo=findShip(marker.pattern,marker);
-			salvoInfo.minAppend=0;
-			salvoInfo.minIncrement=0;
-			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
-			shipInfo=clipboard[activeClipboard].shipInfo;
-			if(shipInfo.period===0){
-				alert("Couldn't find ship. I need an area that contains only the spaceship.");
-				return -1;
-			}else{
-				alert(`Found ${[Math.abs(shipInfo.dx),Math.abs(shipInfo.dy)]}c/${shipInfo.period}`);
-			}
-		}
-		shipInfo=marker.shipInfo;
-		areaLeft=marker.left+shipInfo.shipOffset.x;
-		areaTop=marker.top+shipInfo.shipOffset.y;
-	}
-
-	if(shipInfo.dx===0&&shipInfo.dy===0){
-		alert("Still Life/Oscillator Dectected. I can only use patterns which move to make a salvo.");
-		return -1;
-	}else{
-		if(value+1<salvoInfo.progress.length){
-			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
-			salvoInfo.minIncrement=0;
-			salvoInfo.minAppend=0;
-		}
-		for(let i = salvoInfo.progress.length; i < value+1; i++){
-			incrementSearch(salvoInfo);
-		}
-
-		let salvoArea={top:0,right:0,bottom:0,left:0};
-		let lastShipPosition=-Math.ceil(salvoInfo.progress.slice(-1)[0].delay.slice(-1)[0]/shipInfo.period);
-		salvoArea.top=areaTop+Math.min(0,lastShipPosition*shipInfo.dy);
-		salvoArea.right=areaLeft+Math.max(0,lastShipPosition*shipInfo.dx)+shipInfo.phases[0].length;
-		salvoArea.bottom=areaTop+Math.max(0,lastShipPosition*shipInfo.dy)+shipInfo.phases[0][0].length;
-		salvoArea.left=areaLeft +Math.min(0,lastShipPosition*shipInfo.dx);
-		GRID.head=widenTree(salvoArea);
-		let clearedArray = new Array(salvoArea.right-salvoArea.left);
-		for(let i=0; i< clearedArray.length; i++){
-			clearedArray[i]=new Array(salvoArea.bottom-salvoArea.top);
-			clearedArray[i].fill(0);
-		}
-		const previousPattern=readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left);
-		worker.postMessage({type:"write", args: [salvoArea.left,salvoArea.top, clearedArray]});
-
-		for(let i=0;i<salvoInfo.progress.slice(-1)[0].delay.length;i++){
-			let LeftPosition=salvoInfo.progress.slice(-1)[0].delay[i]/shipInfo.period;
-			let TopPosition=salvoInfo.progress.slice(-1)[0].delay[i]/shipInfo.period;
-			const xPosition=(areaLeft-Math.ceil(LeftPosition)*shipInfo.dx+0*Math.min(0,shipInfo.dx));
-			const yPosition=(areaTop-Math.ceil(TopPosition)*shipInfo.dy+0*Math.min(0,shipInfo.dy));
-			const pattern=shipInfo.phases[mod(-salvoInfo.progress.slice(-1)[0].delay[i],shipInfo.period)];
-			worker.postMessage({type:"write", args: [xPosition,yPosition, pattern]});
-		}
-		
-		if(socket)socket.emit("paste", Date.now(), {newPatt:[salvoArea.left,salvoArea.top,readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left)], oldPatt:[salvoArea.left,salvoArea.top,previousPattern]});
-		optionElement.children[4].value=value;
-		currentEvent=new EventNode(currentEvent,"generate salvo");
-	}
-	
-	if(!isPlaying)render();
-}
-
 function duplicateLastChild(element){
 	element.appendChild(element.lastElementChild.cloneNode(true));
 }
 
 function changeCondition(element){
-	const conditions = [{
-		name: "Reset",
-		condition: () => wasReset
-	},{
-		name: "Pattern Stablizes",
-		condition: (baseElementIndex, element) => {
-			let indexedEvent=currentEvent.parent;
-			let excludedPeriods=integerDomainToArray(element.children[baseElementIndex+1].value);
-			for(let i=1;i<100;i++){
-				if(!indexedEvent)break;
-				if(GRID.head===indexedEvent.head){
-					if(!excludedPeriods.includes(i))return true;
-					break;
-				}
-				indexedEvent=indexedEvent.parent;
-			}
-			return false;
-		}
-	},{
-		name: "Generation",
-		condition: (baseElementIndex, element) => genCount>=parseInt(element.children[baseElementIndex+1].value)
-	},{
-		name: "Population",
-		condition: (baseElementIndex, element) => {
-			let populationCounts=integerDomainToArray(element.children[baseElementIndex+1].value);
-			if(GRID.type===0){
-				return populationCounts.includes(GRID.head.population);
-			}else{
-				return populationCounts.includes(gridPopulation);
-			}
-		}
-	},{
-		name: "Pattern Contains",
-		condition: (baseElementIndex, element) => {
-			let pattern=[];
-			if(element.children[baseElementIndex+1].children[0].innerHTML==="Select Area"&&selectArea.isActive){
-				pattern=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
-			}else if(element.children[baseElementIndex+1].children[0].innerHTML.includes("Marker")){
-				//get marker based on the number within the button element
-				const marker=markers[parseInt(element.children[baseElementIndex+1].children[0].innerHTML.slice(7))-1];
-				if(marker.activeState!==0){
-					pattern=readPattern(marker.top,marker.right,marker.bottom,marker.left);
-				}else{
-					pattern=[];
-				}
-			}else if(element.children[baseElementIndex+1].children[0].innerHTML.includes("Copy Slot")){
-				//get clipboard based on the number within the button element
-				pattern=clipboard[parseInt(element.children[baseElementIndex+1].children[0].innerHTML.slice(10))].pattern;
-			}
-			if(!pattern||pattern.length===0)return false;
-			if(element.children[baseElementIndex+2].children[0].innerHTML==="Select Area"){
-				return selectArea.isActive&&-1!==findPattern(readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left),pattern).x;
-			}else if(element.children[baseElementIndex+2].children[0].innerHTML.includes("Marker")){
-				const marker=markers[parseInt(element.children[baseElementIndex+2].children[0].innerHTML[7])-1];
-				if(marker.activeState!==0){
-					return -1!==findPattern(readPattern(marker.top,marker.right,marker.bottom,marker.left),pattern).x;
-				}else{
-					return false;
-				}
-			}else{
-				return false;
-			}
-		}
-	}];
-
 	const dropdown=element.parentElement.parentElement;
 
 	while(dropdown.nextSibling){
@@ -1269,85 +1098,31 @@ function changeCondition(element){
 	}
 
 	replaceDropdownElement(element);
-	let index = Array.from(dropdown.parentElement.children).indexOf(dropdown);
-	for(let i=0;i<conditions.length;i++){
-		if(conditions[i].name===element.innerText){
-			dropdown.condition=newElement => conditions[i].condition(index,newElement);
-			dropdown.parentElement.appendChild(document.getElementById(conditions[i].name+" Condition Template").content.cloneNode(true));
-			dropdown.parentElement.appendChild(document.getElementById("conditionHTML").content.cloneNode(true));
-			break;
-		}
-	}
-	updateSelectors();
+	dropdown.parentElement.appendChild(document.getElementById(element.innerText+" Condition Template").content.cloneNode(true));
+	dropdown.parentElement.appendChild(document.getElementById("conditionHTML").content.cloneNode(true));
+	updateOption(dropdown.parentElement);
 }
 
+function updateOption(searchOption){
+	const optionIndex = Array.from(searchOption.parentElement.children).indexOf(searchOption);
+	const args = searchOption.children;
+	let conditionIndices = [], parsedArgs = [];
+	for(let i=1;i<args.length-1;i++){
+		parsedArgs.push(args[i].tagName==="INPUT"?args[i].value:args[i].children[0].innerText);
+		if(args[i].classList.contains("condition")) conditionIndices.push(i-1);
+	}
+	worker.postMessage({type:"updateSearchOption", optionIndex, conditionIndices, parsedArgs}).then(() => {
+		//
+	});
+	updateSelectors();
+}
+//TODO: add funtion which copies all the parameters of a search option to the web worker
 function changeAction(element){
-	const actions=[{
-		name: "Reset",
-		action: () => {reset(false);}
-	},{
-		name: "Shift",
-		action: (element) => {
-			if(element.children[2].children[0].innerHTML==="Select Area"){
-				selectArea.top+=parseInt(element.children[4].value);
-				selectArea.right+=parseInt(element.children[3].value);
-				selectArea.bottom+=parseInt(element.children[4].value);
-				selectArea.left+=parseInt(element.children[3].value);
-			}else if(element.children[2].children[0].innerHTML==="Paste Area"&&pasteArea.isActive){
-				pasteArea.top+=parseInt(element.children[4].value);
-				pasteArea.left+=parseInt(element.children[3].value);
-				paste();
-				//TODO: update collaboration features
-				// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-			}
-		}
-	},{
-		name: "Randomize",
-		action: (element) => {
-			if(selectArea.isActive&&element.children[2].children[0].innerHTML==="Select Area"){
-				editArea("randomize",selectArea);
-			}else if(element.children[2].children[0].innerHTML.includes("Marker")){
-				const marker=markers[parseInt(element.children[2].children[0].innerHTML[7])-1];
-				if(marker.activeState!==0)editArea("randomize",marker);
-			}
-			currentEvent=new EventNode(currentEvent, "randomize");
-		}
-	},{
-		name: "Save Pattern",
-		action: () => {
-			if(document.getElementById("rle").value==="")document.getElementById("rle").value="x = 0, y = 0, rule = "+exportRulestring()+"\n";
-			document.getElementById("rle").value=exportRLE().then((response) => appendRLE(response));
-		}
-	},{
-		name: "Generate Salvo",
-		Info: class{
-			constructor(){
-				this.repeatTime=0;
-				this.minIncrement=0;
-				this.minAppend=0;
-				this.progress=[{delay:[0],repeatedResult:false,result:null}];
-			}
-		},
-		action: (element) => {
-				setSalvoIteration(element,parseInt(element.children[4].value)+1);
-		}},
-	{name: "Increment Area",
-		action: (element) => {
-			if(selectArea.isActive&&element.children[2].children[0].innerHTML==="Select Area"){
-        //TODO: replace with editArea("increment");
-				editArea("increment", selectArea);
-			}else if(element.children[2].children[0].innerHTML.includes("Marker")){
-				const marker=markers[parseInt(element.children[2].children[0].innerHTML[7])-1];
-        //TODO: replace with editArea("increment");
-				if(marker.activeState!==0)editArea("increment", marker);
-			}
-			currentEvent=new EventNode(currentEvent, "increment area");
-		}
-	}];
 
 	const option=element.parentElement.parentElement.parentElement;
-	while(element.parentElement.parentElement.nextSibling){
-		element.parentElement.parentElement.nextSibling.remove();
+	const dropdown=element.parentElement.parentElement;
+	while(dropdown.nextSibling){
+		dropdown.nextSibling.remove();
 	}
 
 	//add another space to the search options when the last is selected
@@ -1356,31 +1131,14 @@ function changeAction(element){
 	}
 	
 	replaceDropdownElement(element);
-
-	for(let i=0;i<actions.length;i++){
-		if(actions[i].name===element.innerText){
-			option.action=actions[i].action;
-			option.conditions=[];
-			option.appendChild(document.getElementById(actions[i].name+" Action Template").content.cloneNode(true));
-			option.appendChild(document.getElementById("conditionHTML").content.cloneNode(true));
-			//append a reset option to the top level condition dropdown(prevents feedbackloops by only adding reset condition to non reset actions)
-			if(element.innerText!=="Reset"){
-				option.lastElementChild.children[1].innerHTML+="<button onclick='changeCondition(this);'>Reset</button>";
-			}
-			//when setting up the condition, add info if the template has the Info property(and if the info property doesn't exist FSR? breaks without 2nd part)
-			if(actions[i].Info&&!("info" in option)){
-				console.log("init ship");
-				option.info=new actions[i].Info(option);
-			}else if(!actions[i].Info&&("info" in option)){
-				//removes the info condition if a action with "Info" is changed to one without
-				delete option.info;
-				console.log(option);
-				console.log("deleted info property from an element which shouldn't have it");
-			}
-			break;
-		}
+	option.appendChild(document.getElementById(element.innerText+" Action Template").content.cloneNode(true));
+	option.appendChild(document.getElementById("conditionHTML").content.cloneNode(true));
+	//append a reset option to the top level condition dropdown(prevents feedbackloops by only adding reset condition to non reset actions)
+	if(element.innerText!=="Reset"){
+		option.lastElementChild.children[1].innerHTML+="<button onclick='changeCondition(this);'>Reset</button>";
 	}
-	updateSelectors();
+
+	updateOption(option);
 }
 
 function replaceDropdownElement(target){
@@ -1727,38 +1485,9 @@ function reset() {
 		worker.postMessage({type:"stop",args:[]});
 		isPlaying=false;
 	}
-	worker.postMessage({type:"reset",args:[]});
+	worker.postMessage({type:"reset",args:[isElementCheckedById("userReset")]});
+
 	wasReset=true;
-}
-
-function resetActions(){
-	if(isElementCheckedById("userReset")===false)return;
-	
-	const conditionElements=document.getElementById("searchOptions").getElementsByClassName("condition");
-	for(let i=0;i<conditionElements.length;i++){
-		if(conditionElements[i].children[0]&&conditionElements[i].children[0].innerHTML==="Reset"){
-			searchAction(conditionElements[i].parentElement);
-			break;
-		}
-	}
-	render();
-}
-
-function incrementSearch(searchData){
-	if(searchData.progress.slice(-1)[0].delay.slice(-1)[0]===0){
-		searchData.progress.push({delay:[0,searchData.repeatTime],repeatedResult:false,result:null});
-		searchData.minIncrement=1;
-		searchData.minAppend=1;
-	}else{
-		if(searchData.repeatTime<=searchData.progress[searchData.minIncrement].delay.slice(-1)[0]-searchData.progress[searchData.minAppend].delay.slice(-1)[0]){
-			searchData.progress.push({delay:[...searchData.progress[searchData.minAppend].delay,searchData.progress[searchData.minAppend].delay.slice(-1)[0]+searchData.repeatTime],repeatedResult:true,result:null});
-			searchData.minAppend++;
-		}else{
-			searchData.progress.push({delay:[...searchData.progress[searchData.minIncrement].delay],repeatedResult:false,result:null});
-			searchData.progress.slice(-1)[0].delay[searchData.progress.slice(-1)[0].delay.length-1]++;
-			searchData.minIncrement++;
-		}
-	}
 }
 
 function appendRLE(rleText){

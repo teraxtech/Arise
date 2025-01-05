@@ -63,6 +63,13 @@ class EventNode {
 	}
 }
 
+class SearchCondition{
+	constructor(name, condition){
+		this.name=name;
+		this.condition=condition;
+	}
+}
+
 var 
 	//copy paste clipboard
 	clipboard=Array(3).fill().map(() => ({pattern:[],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null})),
@@ -113,7 +120,9 @@ var
 	//number of genertions updated
 	stepSize=1,
 	//current view of the user
-	view={x:-30,y:-20,z:1};
+	view={x:-30,y:-20,z:1},
+	//flag for whether the simulation was reset during the main loop
+	wasReset = false;
 
 let finishedLoading = false;
 
@@ -935,7 +944,7 @@ function widenTree(area,tree=GRID.head){
 }
 
 //go to before the simulation started
-function reset(pause=true){
+function reset(triggerSearchAction=false){
 	//remove mark branch of salvo inactive if the result has occurred before
 	//TODO: rewrite
 	// const searchElements=document.getElementById("searchOptions").children;
@@ -954,12 +963,15 @@ function reset(pause=true){
 	// }
 
 	if(resetEvent!==null){
-		runningSimulation = false;
 		setEvent(resetEvent);
 		resetEvent=null;
 		GRID.backgroundState=0;
 	}
 	wasReset=true;
+	if(triggerSearchAction){
+		runSearch();
+	}
+
 	sendVisibleCells();
 }
 
@@ -1276,6 +1288,263 @@ function findShip(ship,areaBounds){
 	}
 }
 
+function incrementSearch(searchData){
+	if(searchData.progress.slice(-1)[0].delay.slice(-1)[0]===0){
+		searchData.progress.push({delay:[0,searchData.repeatTime],repeatedResult:false,result:null});
+		searchData.minIncrement=1;
+		searchData.minAppend=1;
+	}else{
+		if(searchData.repeatTime<=searchData.progress[searchData.minIncrement].delay.slice(-1)[0]-searchData.progress[searchData.minAppend].delay.slice(-1)[0]){
+			searchData.progress.push({delay:[...searchData.progress[searchData.minAppend].delay,searchData.progress[searchData.minAppend].delay.slice(-1)[0]+searchData.repeatTime],repeatedResult:true,result:null});
+			searchData.minAppend++;
+		}else{
+			searchData.progress.push({delay:[...searchData.progress[searchData.minIncrement].delay],repeatedResult:false,result:null});
+			searchData.progress.slice(-1)[0].delay[searchData.progress.slice(-1)[0].delay.length-1]++;
+			searchData.minIncrement++;
+		}
+	}
+}
+
+//TODO: add comments to this function
+function integerDomainToArray(string){
+	if(string.length===0)return [];
+	let values=string.split(",");
+	for(let i=0;i<values.length;i++){
+		if(values[i].split("").includes("-")){
+			const endPoints=values[i].split("-").map(num => parseInt(num));
+			let range=new Array(endPoints[1]-endPoints[0]+1);
+			for(let j=0;j<range.length;j++){
+				range[j]=endPoints[0]+j;
+			}
+			values[i]=range;
+		}else{
+			values[i]=parseInt(values[i]);
+		}
+	}
+	return values.flat();
+}
+
+function setSalvoIteration(args, salvoInfo){
+	let areaLeft, areaTop, shipInfo;
+	if(args[1]==="Active Paste"){
+		if(pasteArea.isActive===false)return -1;
+		if(clipboard[activeClipboard].shipInfo.dx===null){
+			clipboard[activeClipboard].shipInfo=findShip(clipboard[activeClipboard].pattern,pasteArea);
+			salvoInfo.minAppend=0;
+			salvoInfo.minIncrement=0;
+			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
+			shipInfo=clipboard[activeClipboard].shipInfo;
+			if(shipInfo.period===0){
+				alert("Couldn't find ship. I need an area that contains only the spaceship.");
+				return -1;
+			}else{
+				alert(`Found (${[Math.abs(shipInfo.dx),Math.abs(shipInfo.dy)]})c/${shipInfo.period}`);
+			}
+		}
+		shipInfo=clipboard[activeClipboard].shipInfo;
+		//location of ship within the paste area
+		areaLeft=pasteArea.left+shipInfo.shipOffset.x;
+		areaTop=pasteArea.top+shipInfo.shipOffset.y;
+	}else if(args[1].match(/Marker .+/)){
+		const marker=markers[parseInt(args[1].slice(7))-1];
+		if(marker.isActive===0)return -1;
+		if(marker.shipInfo.dx===null){
+			marker.shipInfo=findShip(marker.pattern,marker);
+			salvoInfo.minAppend=0;
+			salvoInfo.minIncrement=0;
+			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
+			shipInfo=clipboard[activeClipboard].shipInfo;
+			if(shipInfo.period===0){
+				alert("Couldn't find ship. I need an area that contains only the spaceship.");
+				return -1;
+			}else{
+				alert(`Found ${[Math.abs(shipInfo.dx),Math.abs(shipInfo.dy)]}c/${shipInfo.period}`);
+			}
+		}
+		shipInfo=marker.shipInfo;
+		areaLeft=marker.left+shipInfo.shipOffset.x;
+		areaTop=marker.top+shipInfo.shipOffset.y;
+	}
+
+	if(shipInfo.dx===0&&shipInfo.dy===0){
+		alert("Still Life/Oscillator Dectected. I can only use patterns which move to make a salvo.");
+		return -1;
+	}else{
+		if(args[2]+1<salvoInfo.progress.length){
+			salvoInfo.progress=[{delay:[0],repeatedResult:false,result:null}];
+			salvoInfo.minIncrement=0;
+			salvoInfo.minAppend=0;
+		}
+		for(let i = salvoInfo.progress.length; i < args[2]+1; i++){
+			incrementSearch(salvoInfo);
+		}
+
+		let salvoArea={top:0,right:0,bottom:0,left:0};
+		let lastShipPosition=-Math.ceil(salvoInfo.progress.slice(-1)[0].delay.slice(-1)[0]/shipInfo.period);
+		salvoArea.top=areaTop+Math.min(0,lastShipPosition*shipInfo.dy);
+		salvoArea.right=areaLeft+Math.max(0,lastShipPosition*shipInfo.dx)+shipInfo.phases[0].length;
+		salvoArea.bottom=areaTop+Math.max(0,lastShipPosition*shipInfo.dy)+shipInfo.phases[0][0].length;
+		salvoArea.left=areaLeft +Math.min(0,lastShipPosition*shipInfo.dx);
+		GRID.head=widenTree(salvoArea);
+		let clearedArray = new Array(salvoArea.right-salvoArea.left);
+		for(let i=0; i< clearedArray.length; i++){
+			clearedArray[i]=new Array(salvoArea.bottom-salvoArea.top);
+			clearedArray[i].fill(0);
+		}
+		const previousPattern=readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left);
+		worker.postMessage({type:"write", args: [salvoArea.left,salvoArea.top, clearedArray]});
+
+		for(let i=0;i<salvoInfo.progress.slice(-1)[0].delay.length;i++){
+			let LeftPosition=salvoInfo.progress.slice(-1)[0].delay[i]/shipInfo.period;
+			let TopPosition=salvoInfo.progress.slice(-1)[0].delay[i]/shipInfo.period;
+			const xPosition=(areaLeft-Math.ceil(LeftPosition)*shipInfo.dx+0*Math.min(0,shipInfo.dx));
+			const yPosition=(areaTop-Math.ceil(TopPosition)*shipInfo.dy+0*Math.min(0,shipInfo.dy));
+			const pattern=shipInfo.phases[mod(-salvoInfo.progress.slice(-1)[0].delay[i],shipInfo.period)];
+			worker.postMessage({type:"write", args: [xPosition,yPosition, pattern]});
+		}
+		
+		if(socket)socket.emit("paste", Date.now(), {newPatt:[salvoArea.left,salvoArea.top,readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left)], oldPatt:[salvoArea.left,salvoArea.top,previousPattern]});
+		//TODO: set iteration value u
+		// optionElement.children[4].value=value;
+		currentEvent=new EventNode(currentEvent,"generate salvo");
+	}
+	
+	if(!isPlaying)render();
+}
+
+async function updateSearchOption(data){
+	const actions={
+		"Reset": (args) => () => {reset(false);},
+		"Shift": (args) => () => {
+			postMessage({type:"shift", args:args});
+			// 	//TODO: update collaboration features
+			// 	// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
+			// }
+		},
+		"Randomize": (args) => () => {
+			if(selectArea.isActive&&args[0]==="Select Area"){
+				editArea("randomize",selectArea);
+			}else if(args[0].includes("Marker")){
+				const marker=markers[parseInt(args[0][7])-1];
+				if(marker.activeState!==0)editArea("randomize",marker);
+			}
+			currentEvent=new EventNode(currentEvent, "randomize");
+		},
+		"Save Pattern": (args) => () => {
+			if(document.getElementById("rle").value==="")document.getElementById("rle").value="x = 0, y = 0, rule = "+exportRulestring()+"\n";
+			document.getElementById("rle").value=exportRLE().then((response) => appendRLE(response));
+		},
+		"Generate Salvo": (args) => {
+			const salvoInfo={repeatTime:0,minIncrement:0,minAppend:0,progress:[{delay:[0],repeatedResult:false,result:null}]};
+			return () => setSalvoIteration(args,salvoInfo);
+		},
+		// Info: class{
+		// 	constructor(){
+		// 		this.repeatTime=0;
+		// 		this.minIncrement=0;
+		// 		this.minAppend=0;
+		// 		this.progress=[{delay:[0],repeatedResult:false,result:null}];
+		// 	}
+		// },
+		"Increment Area": (args) => () => {
+			if(selectArea.isActive&&args[0]==="Select Area"){
+				//TODO: replace with editArea("increment");
+				editArea("increment", selectArea);
+			}else if(args[0].includes("Marker")){
+				const marker=markers[parseInt(args[0][7])-1];
+				//TODO: replace with editArea("increment");
+				if(marker.activeState!==0)editArea("increment", marker);
+			}
+			currentEvent=new EventNode(currentEvent, "increment area");
+		}
+	};
+
+	const conditions = {
+		"Reset":(args) =>() => wasReset,
+		"Pattern Stablizes":(args) => {
+			console.log(!args[0]);
+			console.log(args);
+			let excludedPeriods=integerDomainToArray(args[0]);
+			return () => {
+				let indexedEvent=currentEvent.parent;
+				for(let i=1;i<100;i++){
+					if(!indexedEvent)break;
+					if(GRID.head===indexedEvent.head){
+						console.log("match");
+						if(!excludedPeriods.includes(i))return true;
+						break;
+					}
+					indexedEvent=indexedEvent.parent;
+				}
+				return false;
+			}
+		},
+		"Generation":(args) => () => {
+			if(!args[0])return false;
+			genCount>=parseInt(args[0]);
+		},
+		"Population":(args) => () => {
+			if(!args[0])return false;
+			let populationCounts=integerDomainToArray(args[0]);
+			if(GRID.type===0){
+				return populationCounts.includes(GRID.head.population);
+			}else{
+				return populationCounts.includes(gridPopulation);
+			}
+		},
+		"Pattern Contains":(args) => () => {
+			let pattern=[];
+			if(!args[0]||!args[1])return false;
+			if(args[0]==="Select Area"&&selectArea.isActive){
+				pattern=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
+			}else if(args[0].includes("Marker")){
+				//get marker based on the number within the button element
+				const marker=markers[parseInt(args[0].slice(7))-1];
+				if(marker.activeState!==0){
+					pattern=readPattern(marker.top,marker.right,marker.bottom,marker.left);
+				}else{
+					pattern=[];
+				}
+			}else if(args[0].includes("Copy Slot")){
+				//get clipboard based on the number within the button element
+				pattern=clipboard[parseInt(args[0].slice(10))].pattern;
+			}
+			if(!pattern||pattern.length===0)return false;
+			if(args[1]==="Select Area"){
+				return selectArea.isActive&&-1!==findPattern(readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left),pattern).x;
+			}else if(args[1].includes("Marker")){
+				const marker=markers[parseInt(args[1][7])-1];
+				if(marker.activeState!==0){
+					return -1!==findPattern(readPattern(marker.top,marker.right,marker.bottom,marker.left),pattern).x;
+				}else{
+					return false;
+				}
+			}else{
+				return false;
+			}
+		}};
+
+
+	searchOptions[data.optionIndex]=data;
+	searchOptions[data.optionIndex].action=actions[data.parsedArgs[0]](data.parsedArgs.slice(1));
+	searchOptions[data.optionIndex].conditions=[];
+	for (const index of data.conditionIndices) {
+		searchOptions[data.optionIndex].conditions.push(conditions[data.parsedArgs[index]](data.parsedArgs.slice(index+1)));
+	}
+	console.log(searchOptions);
+}
+
+function runSearch(){
+	console.log("running search");
+	for(let i=0;i<searchOptions.length;i++){
+		let allConditionsMet = true;
+		for (const condition of searchOptions[i].conditions) {
+			console.log(condition());
+			if(condition()===false)allConditionsMet=false;
+		}
+		if(allConditionsMet) {console.log("action");searchOptions[i].action();}
+	}
+}
 //TODO: have function return pattern to be added to paste area
 function importRLE(rleText){
 	if(rleText.length===0){
@@ -2136,12 +2405,16 @@ onmessage = (e) => {
 		case "getBounds":
 			respond(calculateBounds(GRID));
 			break;
+		case "updateSearchOption":
+			updateSearchOption(e.data);
+			break;
     default:
       self[e.data.type](...e.data.args);
 	}
 }
 
 function stepSimulation(){
+	wasReset=false;
 	if(resetEvent===null){
 		//creates an EventNode with all neccessary information representing gen 0, and saves a referece to it
 		resetEvent=new EventNode(currentEvent.parent, "reset point");
@@ -2153,16 +2426,14 @@ function stepSimulation(){
 	}
 	for(let i=0;i<stepSize;i++) gen(GRID);
 	currentEvent=new EventNode(currentEvent, "gen");
+	runSearch();
 	sendVisibleCells();
 }
 
 function loop(){
 
 	if(runningSimulation){
-		// wasReset=false;
-		// for(let i=0;i<document.getElementById("searchOptions").children.length-1;i++){
-		// 	searchAction(document.getElementById("searchOptions").children[i]);
-		// }
+		wasReset=false;
     
 		stepSimulation();
 		if(simulationSpeed<99){
@@ -2180,7 +2451,6 @@ function sendVisibleCells(){
 		       rightBorder = Math.min(view.x+30+30/view.z+1, GRID.head.distance/4),
 		       bottomBorder = Math.min(view.y+20+20/view.z+1, GRID.head.distance/4),
 		       leftBorder = Math.max(view.x+30-30/view.z-1, -GRID.head.distance/4);
-		console.log(topBorder, rightBorder, bottomBorder, leftBorder);
 		let visiblePattern = [[]];
     if(rightBorder-leftBorder>0&&bottomBorder-topBorder>0)
       visiblePattern = readPatternFromTree(new Area(Math.ceil(topBorder), Math.ceil(rightBorder), Math.ceil(bottomBorder), Math.ceil(leftBorder)), GRID);
