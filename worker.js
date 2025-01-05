@@ -407,7 +407,8 @@ function readSubpattern(pattern,top,right,bottom,left){
 function readPatternFromTree(area, tree){
   if(area.right-area.left<0)throw new Error("trying to read negative width");
   if(area.bottom-area.top<0)throw new Error("trying to read negative height");
-  let pattern = new2dArray(area.right-area.left, area.bottom-area.top, GRID.backgroundState);
+  let pattern = new2dArray(area.right-area.left, area.bottom-area.top, tree.backgroundState);
+	if(tree.head.value===tree.backgroundState)return pattern;
 	let stack = new Array(tree.head.distance.toString(2).length);
 	stack[0]={node:tree.head, direction:0, dist: tree.head.distance*0.25, x:-area.left-0.5,y:-area.top-0.5};
 	let depth=0;
@@ -415,9 +416,11 @@ function readPatternFromTree(area, tree){
 		if(i === Number.MAX_SAFE_INTEGER){
 			console.log(`number of nodes exceeds ${Number.MAX_SAFE_INTEGER}.`);
 		}
-		// console.log(stack[depth].direction, depth, stack[depth].x, stack[depth].y, visitedNodes[depth].distance/2, stack[depth].node.value);
+		// console.log(stack[depth].direction, depth, stack[depth].x, stack[depth].y, stack[depth].node.value);
 		if(stack[depth].node.distance===1){
 			pattern[stack[depth].x][stack[depth].y]=stack[depth].node.value;
+			stack[--depth].direction++;
+		}else if(stack[depth].node.value===tree.backgroundState){
 			stack[--depth].direction++;
 		}else if(stack[depth].direction<4){
 			if((stack[depth].y>0||stack[depth].direction>1)
