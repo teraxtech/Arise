@@ -171,7 +171,6 @@ class Thread{
         canvasElement.drawImage(bitmap,0,0);
         break;
 			case "shift":
-				console.log(e.data.args);
 				if(e.data.args[0]==="Select Area"){
 					selectArea.top+=parseInt(e.data.args[2]);
 					selectArea.right+=parseInt(e.data.args[1]);
@@ -279,9 +278,6 @@ var
 	wasReset=false,
 	//window and canvas dimensions
 	windowHeight=0,windowWidth=0,canvasWidth=0,canvasHeight=0;
-
-clipboard[1].pattern=[[1,0],[0,1]];
-console.log(clipboard);
 
 let countRenders = 0;
 let socket;
@@ -984,7 +980,6 @@ function setDrawMode(){
 function setMoveMode(){
 	editMode=1;
 	captureScroll=true;
-	console.log("set move mode");
 }
 
 //swith to select mode
@@ -1241,7 +1236,6 @@ function editArea(action, area=selectArea){
 	if(pasteArea.isActive){
 		resetClipboard();
 	}else if(selectArea.isActive===true){
-    console.log(area);
     worker.postMessage({type:action, area:area, drawMode:drawMode, clipboard:activeClipboard, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
       if(action==="copy"||action==="cut"){
         clipboard[activeClipboard].pattern=response;
@@ -1581,7 +1575,6 @@ function move(){
       pasteArea.left=x-pasteArea.pointerRelativeX;
       pasteArea.top=y-pasteArea.pointerRelativeY;
     }else if(GRID.finiteArea.isBeingDragged){
-      console.log(x, y);
       GRID.finiteArea.moveEdgeTo(x, y);
     }else{
       if(pasteArea.isActive&&clipboard[activeClipboard]&&x>=pasteArea.left&&x<pasteArea.left+clipboard[activeClipboard].pattern.length&&y>=pasteArea.top&&y<pasteArea.top+clipboard[activeClipboard].pattern[0].length){
@@ -1706,7 +1699,6 @@ function select(){
 		// select the last indexed marker
 		if(selectedMarker!==-1){
 			if(selectedMarker>=0)markers[selectedMarker].activeState=2;
-			console.log(`${markers[0].activeState} ${markers[1].activeState} ${markers[2].activeState} ${markers[3].activeState}`);
 			setActionMenu();
 		}else if(selectArea.isActive===false){
 			// make a selectArea if there are no selectable markers
