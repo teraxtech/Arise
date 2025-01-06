@@ -2433,18 +2433,22 @@ function stepSimulation(){
 	sendVisibleCells();
 }
 
+let time = performance.now(), updatesPerSecond = 60;
 function loop(){
 
 	if(runningSimulation){
 		wasReset=false;
     
 		stepSimulation();
-		if(simulationSpeed<99){
-			setTimeout(loop, 0.1*(100-simulationSpeed)*(100-simulationSpeed));
+		if(simulationSpeed<100){
+			setTimeout(loop, 0.1*(100-simulationSpeed)*(100-simulationSpeed)+16.667);
 		}else{
 			requestAnimationFrame(loop);
 		}
 	}
+
+	updatesPerSecond = updatesPerSecond * 0.9 + 1000/(performance.now()-time) * 0.1;
+	time = performance.now();
 }
 
 //TODO: rewrite to use transferrable objects
@@ -2460,6 +2464,6 @@ function sendVisibleCells(){
 		postMessage({type:"render", top:topBorder, left:leftBorder, pattern:visiblePattern, population:GRID.head.population, generation:genCount, backgroundState:GRID.backgroundState});
 	}else{
 		const visiblePattern = GRID.finiteArray;
-		postMessage({type:"render", top:GRID.finiteArea.top - GRID.finiteArea.margin, left:GRID.finiteArea.left - GRID.finiteArea.margin, pattern:visiblePattern, population:91, generation:genCount, backgroundState:GRID.backgroundState});
+		postMessage({type:"render", UPS:updatesPerSecond, top:GRID.finiteArea.top - GRID.finiteArea.margin, left:GRID.finiteArea.left - GRID.finiteArea.margin, pattern:visiblePattern, population:91, generation:genCount, backgroundState:GRID.backgroundState});
 	}
 }
