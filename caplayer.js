@@ -1963,6 +1963,7 @@ function getFormat(){
 
 function importRLE(rleText){
 	worker.postMessage({type:"import",args:rleText}).then((response) => {
+		if(response === -1)return Promise.reject();
 		if(response.writeDirectly){
 			setView(...response.view);
 		}else{
@@ -1976,6 +1977,8 @@ function importRLE(rleText){
 			setActionMenu();
 		}
 		document.getElementById("rule").value=response.rule;
+	}).catch((reason) => {
+		console.log("Importing pattern from clipboard failed due to ", reason)
 	});
 }
 
