@@ -1095,10 +1095,11 @@ function changeCondition(element){
 	replaceDropdownElement(element);
 	dropdown.parentElement.appendChild(document.getElementById(element.innerText+" Condition Template").content.cloneNode(true));
 	dropdown.parentElement.appendChild(document.getElementById("conditionHTML").content.cloneNode(true));
-	updateOption(dropdown.parentElement);
+	updateSearch(dropdown);
 }
 
-function updateOption(searchOption){
+function updateSearch(element){
+	const searchOption = element.parentElement;
 	const optionIndex = Array.from(searchOption.parentElement.children).indexOf(searchOption);
 	const args = searchOption.children;
 	let conditionIndices = [], parsedArgs = [];
@@ -1133,7 +1134,7 @@ function changeAction(element){
 		option.lastElementChild.children[1].innerHTML+="<button onclick='changeCondition(this);'>Reset</button>";
 	}
 
-	updateOption(option);
+	updateSearch(dropdown);
 }
 
 function replaceDropdownElement(target){
@@ -1358,7 +1359,7 @@ function updateSelectors(){
 		if(dropdownContents[i].className.includes("copy-slot")){
 			for(let j=1;j<clipboard.length-1;j++){
 				if(elementIndex>=dropdownContents[i].children.length){
-					dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);">Copy Slot ${j}</button>`;
+					dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Copy Slot ${j}</button>`;
 					elementIndex++;
 				}
 			}

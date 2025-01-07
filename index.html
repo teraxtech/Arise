@@ -219,8 +219,8 @@ o5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2b4o2b4o2b4o2b5o!"></textare
 				<div class="dropdown conjunction">
 					<button class="dropdown-button">When</button>
 					<div class="dropdown-content">
-						<button onclick="replaceDropdownElement(this);" style="display: none;">When</button>
-						<button onclick="replaceDropdownElement(this);">Not When</button>
+						<button onclick="replaceDropdownElement(this);updateSearch(this);" style="display: none;">When</button>
+						<button onclick="replaceDropdownElement(this);updateSearch(this);">Not When</button>
 					</div>
 				</div>
 				<div class="dropdown condition">
@@ -238,31 +238,31 @@ o5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2b4o2b4o2b4o2b5o!"></textare
 			</template>
 			<template id="Pattern Stablizes Condition Template">
 				except period(s)
-				<input type="text" placeholder="2,3,7,18" data-name="excludedPeriods">
+				<input type="text" placeholder="2,3,7,18" onchange="updateSearch(this)" data-name="excludedPeriods">
 				and
 			</template>
 			<template id="Generation Condition Template">
 				is
-				<input type="text" class="shortText">
+				<input type="text" class="shortText" onchange="updateSearch(this)">
 				and
 			</template>
 			<template id="Population Condition Template">
 				is
-				<input type="text" class="shortText" placeholder="6,15,20-24">
+				<input type="text" class="shortText" placeholder="6,15,20-24" onchange="updateSearch(this)">
 				and
 			</template>
 			<template id="Pattern Contains Condition Template">
 				<div class="dropdown">
 				<button class="dropdown-button"></button>
 					<div class="dropdown-content areas copy-slot">
-						<button onclick="replaceDropdownElement(this);">Select Area</button>
+						<!--<button onclick="replaceDropdownElement(this);updateSearch(this);">Select Area</button>-->
 					</div>
 				</div>
 				within
 				<div class="dropdown">
 					<button class="dropdown-button"></button>
 					<div class="dropdown-content areas">
-						<button onclick="replaceDropdownElement(this);">Select Area</button>
+						<button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Select Area</button>
 					</div>
 				</div>
 				and
@@ -273,41 +273,41 @@ o5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2bo5bo5bo5bo3bo$o3bo2b4o2b4o2b4o2b5o!"></textare
 				<div class="dropdown">
 			    <button class="dropdown-button"></button>
 				  <div class="dropdown-content">
-					  <button onclick="replaceDropdownElement(this);">Select Area</button>
-					  <button onclick="replaceDropdownElement(this);">Paste Area</button>
+					  <button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Select Area</button>
+					  <button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Paste Area</button>
 				  </div>
 			  </div>
 			  right
-			  <input type="text" value="0" class="shortText">
+			  <input type="text" value="0" class="shortText" onchange="updateSearch(this)">
 			  and down 
-			  <input type="text" value="0" class="shortText">
+			  <input type="text" value="0" class="shortText" onchange="updateSearch(this)">
 			</template>
 			<template id="Randomize Action Template">
 				<div class="dropdown">
 			    <button class="dropdown-button"></button>
 				  <div class="dropdown-content areas">
-					  <button onclick="replaceDropdownElement(this);">Select Area</button>
+					  <button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Select Area</button>
 				  </div>
 			  </div>
 		  </template>
 			<template id="Save Pattern Action Template">
 			</template>
 			<template id="Generate Salvo Action Template">
-				with repeat time <input type="text" value="0" class="shortText" onchange="this.parentElement.info.repeatTime=parseInt(this.value);">
+				with repeat time <input type="text" value="0" class="shortText" onchange="this.parentElement.info.repeatTime=parseInt(this.value);updateSearch(this);">
 		     using pattern in 
 		     <div class="dropdown">
 		      <button class="dropdown-button"></button>
 		      <div class="dropdown-content pattern-marker">
-		       <button onclick="replaceDropdownElement(this);">Active Paste</button>
+		       <button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Active Paste</button>
 		      </div>
 		     </div>;
-		     iteration <input type="text" class="salvoProgress" value="0" onchange="setSalvoIteration(this.parentElement,parseInt(this.value))" style="width:40px;">
+		     iteration <input type="text" class="salvoProgress" value="0" onchange="setSalvoIteration(this.parentElement,parseInt(this.value));updateSearch(this)" style="width:40px;">
 			</template>
 			<template id="Increment Area Action Template">
 				<div class="dropdown">
 			    <button class="dropdown-button"></button>
 				  <div class="dropdown-content areas">
-					  <button onclick="replaceDropdownElement(this);">Select Area</button>
+					  <button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Select Area</button>
 				  </div>
 			  </div>
 			</template>

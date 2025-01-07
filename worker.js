@@ -1477,7 +1477,7 @@ async function updateSearchOption(data){
 		},
 		"Generation":(args) => () => {
 			if(!args[0])return false;
-			genCount>=parseInt(args[0]);
+			return genCount>=parseInt(args[0]);
 		},
 		"Population":(args) => () => {
 			if(!args[0])return false;
