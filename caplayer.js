@@ -15,18 +15,13 @@ class Pointer {
 
 class Area {
   constructor(top=0, right=0, bottom=0, left=0){
-    this.isActive=false;
-    this.isBeingDragged=false;
     this.top=top;
     this.right=right;
     this.bottom=bottom;
     this.left=left;
-    this.pointerRelativeX=0;
-    this.pointerRelativeY=0;
-    this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
-    this.pattern=[];
-    this.previewBitmap=null;
   }
+	
+	get bounds () { return [this.top, this.right, this.bottom, this.left]};
   
   setLocation(x, y){
     this.bottom+=y-this.top;
@@ -41,56 +36,141 @@ class Area {
     this.bottom=arguments.lenght===1?arguments.bottom:bottom;
     this.left=arguments.lenght===1?arguments.left:left;
   }
-  
-  moveEdgeTo(x, y){
-		if(mod(edgeBeingDragged,3)===2){
+
+	//test if the coordinate is within the area + plus a margin
+	isWithinBounds(x, y, margin=0){
+		if(x<this.left-margin)return false;
+		if(x>=this.right+margin)return false;
+		if(y<this.top-margin)return false;
+		if(y>=this.bottom+margin)return false;
+		return true;
+	}
+}
+
+class DraggableArea extends Area {  
+	constructor(top=0, right=0, bottom=0, left=0){
+		super(top, right, bottom, left)
+		this.edgeBeingDragged = 0;
+	}
+	
+	//check if the coordinates allows something to be dragged, return null otherwise
+	attemptDrag(x,y){
+		// the margin for selecting the edges within the selectArea
+		// is 4/view.z wide, but also less than the half the width
+		//
+		// edgebeingdragged:
+		//-4 = bottom -left edge
+		//-3 = left edge
+		//-2 = top-left edge
+		//-1 = bottom edge
+		// 0 = no edge is selected
+		// 1 = top edge
+		// 2 = bottom-right edge
+		// 3 = bottom edge
+		// 4 = top-right edge
+		//
+		//     +1
+		//      ^
+		// -3 < 0 > +3
+		//      v
+		//     -1
+		if(x<Math.min(this.left+4/view.z,(this.right+this.left)/2)){
+			this.edgeBeingDragged=-3;
+			isPlaying=false;
+		}else if(x>Math.max(this.right-4/view.z,(this.right+this.left)/2)){
+			this.edgeBeingDragged=3;
+			isPlaying=false;
+		}
+		if(y<Math.min(this.top+4/view.z,(this.bottom+this.top)/2)){
+			this.edgeBeingDragged+=1;
+			isPlaying=false;
+		}else if(y>Math.max(this.bottom-4/view.z,(this.bottom+this.top)/2)){
+			this.edgeBeingDragged-=1;
+			isPlaying=false;
+		}
+		return (this.edgeBeingDragged===0)?null:this;
+	}
+
+	//called to update the object if it is being dragged
+  drag(x, y){
+		//drag top edge
+		if(mod(this.edgeBeingDragged,3)===2){
       this.bottom=y+1;
 			if(y<this.top){
 				this.bottom=this.top+1;
-				edgeBeingDragged+=2;
+				this.edgeBeingDragged+=2;
 			}
-			if(edgeBeingDragged===-1){
-				if(x<this.left)edgeBeingDragged=-4;
-				if(x>this.right)edgeBeingDragged=2;
+			if(this.edgeBeingDragged===-1){
+				if(x<this.left)this.edgeBeingDragged=-4;
+				if(x>this.right)this.edgeBeingDragged=2;
 			}
 		}
-		//drag left edgeBeingDragged
-		if(edgeBeingDragged>=-4&&edgeBeingDragged<=-2){
+		//drag left edge
+		if(this.edgeBeingDragged>=-4&&this.edgeBeingDragged<=-2){
 			this.left=x;
 			if(x>=this.right-1){
 				this.left=this.right-1;
-				edgeBeingDragged+=6;
+				this.edgeBeingDragged+=6;
 			}
-			if(edgeBeingDragged===-3){
-				if(y<this.top)edgeBeingDragged=-2;
-				if(y>this.bottom)edgeBeingDragged=-4;
+			if(this.edgeBeingDragged===-3){
+				if(y<this.top)this.edgeBeingDragged=-2;
+				if(y>this.bottom)this.edgeBeingDragged=-4;
 			}
 		}
-		//drag top edgeBeingDragged
-		if(mod(edgeBeingDragged,3)===1){
+		//drag top edge
+		if(mod(this.edgeBeingDragged,3)===1){
 			this.top=y;
 			if(y>=this.bottom-1){
 				this.top=this.bottom-1;
-				edgeBeingDragged-=2;
+				this.edgeBeingDragged-=2;
 			}
-			if(edgeBeingDragged===1){
-				if(x<this.left)edgeBeingDragged=-2;
-				if(x>this.right)edgeBeingDragged=4;
+			if(this.edgeBeingDragged===1){
+				if(x<this.left)this.edgeBeingDragged=-2;
+				if(x>this.right)this.edgeBeingDragged=4;
 			}
 		}
-	//	//drag right edgeBeingDragged
-		if(edgeBeingDragged>=2&&edgeBeingDragged<=4){
+		//drag right edge
+		if(this.edgeBeingDragged>=2&&this.edgeBeingDragged<=4){
 			this.right=x+1;
 			if(x<this.left+1){
 				this.right=this.left+1;
-				edgeBeingDragged-=6;
+				this.edgeBeingDragged-=6;
 			}
-			if(edgeBeingDragged===3){
-				if(y<this.top)edgeBeingDragged=4;
-				if(y>this.bottom)edgeBeingDragged=2;
+			if(this.edgeBeingDragged===3){
+				if(y<this.top)this.edgeBeingDragged=4;
+				if(y>this.bottom)this.edgeBeingDragged=2;
 			}
 		}
   }
+	
+	reset(){ this.edgeBeingDragged = 0; }
+}
+
+class ClipboardSlot extends DraggableArea {
+	constructor(pattern, left=0, top=0){
+		super(top, left+pattern.length, top+pattern[0].length, left)
+    this.isActive=false;
+    this.pointerRelativeX=0;
+    this.pointerRelativeY=0;
+    this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
+    this.pattern=pattern;
+    this.previewBitmap=patternToBitmap(pattern);
+	}
+
+	attemptDrag(x,y){
+		this.pointerRelativeX=x-this.left;
+		this.pointerRelativeY=y-this.top;
+		return this;
+	}
+
+	reset(){};
+
+	drag(x,y){
+    this.bottom+=y-this.top-pasteArea.pointerRelativeY;
+    this.right+=x-this.left-pasteArea.pointerRelativeX;
+    this.top=y-pasteArea.pointerRelativeY;
+    this.left=x-pasteArea.pointerRelativeX;
+	}
 }
 
 //TODO: implement an object to handle backaend state and methods, possibly with general worker class.
@@ -132,7 +212,6 @@ class Thread{
 				ruleMetadata = e.data.ruleMetadata;
 				//initializes the menu of draw states
 				setDrawMenu();
-				console.log(ruleMetadata);
 				if(socket)socket.emit("rule", ruleMetadata.string);
 				updateCanvasColor(true);
 				break;
@@ -155,8 +234,8 @@ class Thread{
       case "identificationResults":
         document.getElementById("identifyOutput").innerHTML=`
           <span>
-            select area width: ${selectArea.right-selectArea.left}\n
-            select area height: ${selectArea.bottom-selectArea.top}\n
+            select area width: ${e.data.area.right-e.data.area.left}\n
+            select area height: ${e.data.area.bottom-e.data.area.top}\n
             period: ${e.data.value.period}\n
             x displacement: ${e.data.value.dx}\n
             y displacement: ${e.data.value.dy}
@@ -172,11 +251,8 @@ class Thread{
         break;
 			case "shift":
 				if(e.data.args[0]==="Select Area"){
-					selectArea.top+=parseInt(e.data.args[2]);
-					selectArea.right+=parseInt(e.data.args[1]);
-					selectArea.bottom+=parseInt(e.data.args[2]);
-					selectArea.left+=parseInt(e.data.args[1]);
-				}else if(e.data.args[0]==="Paste Area"&&pasteArea.isActive){
+					if(selectArea)selectArea.setLocation(selectArea.top+parseInt(e.data.args[2]), selectArea.left+parseInt(e.data.args[1]));
+				}else if(e.data.args[0]==="Paste Area"&&pasteArea){
 					pasteArea.top+=parseInt(e.data.args[2]);
 					pasteArea.left+=parseInt(e.data.args[1]);
 					paste();
@@ -205,8 +281,6 @@ var
 	darkMode=1,
 	//canvas fill color(0-dark,1-light)
 	detailedCanvas=true,
-	//ID of the thing being dragged(0=nothing,-4 to -1 and 4 to 4 for each corner)
-	edgeBeingDragged=0,
 	//what format should the rulestring be exported as
 	exportFormat="BSG",
 	//whether the cursor draws a specific state or changes automatically;-1=auto, other #s =state
@@ -228,7 +302,7 @@ var
 		//data for the cells on a finite grid
 		finiteArray:[],
 		//area representing a finite portion of the grid
-		finiteArea:new Area(),
+		finiteArea:new DraggableArea(),
     //margin of permantly off cells around the pattern
     margin:false,
 		//state of the background(used for B0 rules)
@@ -246,7 +320,7 @@ var
 	pointers=[],
 	//TODO: store dimensions as array and add getters for top, left, etc...
 	//area containing the pattern to be pasted
-	pasteArea=new Area(),
+	pasteArea=null,
 	//point where the simulator resets to
 	resetEvent=null,
 	//rule stored internally as an n-tree for a n state rule
@@ -261,7 +335,7 @@ var
                 forceLife:[false,false]},
 	//selected area
 	//TODO: store dimensions as array and add getters for top, left, etc...
-	selectArea=new Area(),
+	selectArea=null,
 	//index of the marker being selected and interacted with
 	selectedMarker=-1,
 	//keeps track of when the last generation occurred
@@ -380,20 +454,18 @@ function importSettings(){
 			}
 			break;
 		case "selA":
-			selectArea.isActive=true;
 			setActionMenu();
 			area=value.split(".").map(str => parseInt(str));
-
-      selectArea.setSize(...area);
+			selectArea=new DraggableArea(...area);
 			break;
-		case "pasteA":
-			pasteArea.isActive=true;
-			setActionMenu();
-			area=value.split(".").map(str => parseInt(str));
-
-			pasteArea.top=area[0];
-			pasteArea.left=area[1];
-			break;
+		//TODO: remove since paste area is now just a visible clipboardSlot, kept temporarily as reference
+		// case "pasteA":
+		// 	setActionMenu();
+		// 	area=value.split(".").map(str => parseInt(str));
+		//
+		// 	pasteArea.top=area[0];
+		// 	pasteArea.left=area[1];
+		// 	break;
 		case "pat":
 			area=[0,0,0,0];
 			for(let i=0;i<4;i++)area[i]=parseInt(value.split(".")[i]);
@@ -512,11 +584,13 @@ async function exportSetting(){
 
 	if(activeClipboard!==1)text+="&slot="+activeClipboard;
 
+	let segments;
 	if(clipboard.length>3||clipboard[1]){
-		let segments = new Array(clipboard.length).fill("");
-		Promise.all(clipboard.map((value, index) => worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"clipboard"+(index+1)}).then((response) => {
+		segments = new Array(clipboard.length).fill("");
+		const promises = clipboard.map((value, index) => worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"clipboard"+(index+1)}).then((response) => {
 			const i=index+1;
 			if(i>1)segments[index]+=".";
+		 	console.log(response, i, index);
 			if(clipboard[i]&&clipboard[i].pattern.length>0){
 				segments[index]+=`${clipboard[i].pattern.length}.${clipboard[i].pattern[0].length}.${response}.`;
 				//TODO: rewrite to use postMessage
@@ -529,14 +603,17 @@ async function exportSetting(){
 			}else{
 				segments[index]+="0.0..";
 			}
-		}))).then((response) => {
+		}))
+		console.log(promises);
+		Promise.all(promises).then((response) => {
+			console.log(segments);
 			text+="&slots="+segments.join("");
 		});
 	}
 
-	if(selectArea.isActive)text+=`&selA=${selectArea.top}.${selectArea.right}.${selectArea.bottom}.${selectArea.left}`;
+	if(selectArea)text+=`&selA=${selectArea.top}.${selectArea.right}.${selectArea.bottom}.${selectArea.left}`;
 
-	if(pasteArea.isActive)text+=`&pasteA=${pasteArea.top}.${pasteArea.left}`;
+	if(pasteArea)text+=`&pasteA=${pasteArea.top}.${pasteArea.left}`;
 	
 	if(isElementCheckedById("resetStop")===false)text+="&resetStop=false";
 
@@ -609,10 +686,7 @@ async function exportSetting(){
 	// if(resetEvent!==null)setEvent(currentEvent);
 }
 
-function drawCell(){
-	//coordinates of the touched cell
-	let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
-	let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
+function drawCell(x, y){
 	let queueEnd = drawnCells[drawnCells.length - 1];
 	if(GRID.type===0||(y>=GRID.finiteArea.top&&x<GRID.finiteArea.right&&y<GRID.finiteArea.bottom&&x>=GRID.finiteArea.left)){
 		if(queueEnd.length===0){
@@ -665,7 +739,7 @@ window.onkeydown = function(event){
   case 51: setSelectMode(); break;//3
   case 67: editArea("copy"); break;//c
   case 70://f
-    if(pasteArea.isActive){
+    if(pasteArea){
       //to rotate the paste area
       if(key[16]){
         //counter clockwise
@@ -688,10 +762,10 @@ window.onkeydown = function(event){
   case 77: setMark(); break;//m
   case 78: next(); break;//n
   case 82://r
-    if(selectArea.isActive){
+    if(selectArea){
       //to randomize the select area
       editArea("randomize", selectArea);
-    }else if(pasteArea.isActive){
+    }else if(pasteArea){
       //to rotate the paste area
       flipDiag();
       if(key[16]){
@@ -753,30 +827,27 @@ canvas.onpointerdown = (event) => {
 
 	pointers.push(new Pointer(event.clientX-canvas.getBoundingClientRect().left,event.clientY-canvas.getBoundingClientRect().top, event.pointerId));
 
+	//coordinates of the touched cell
+	let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
+	let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
 	switch(editMode){
 		case 0:
 		drawnCells.push([]);
-		drawCell();
+		drawCell(x,y);
     //get the cell state to be used for drawing from the worker [x, y]
-		worker.postMessage({
-			type:"writeCell",
-			//TODO: reaname args to something less esoteric
-			args:[
-				Math.floor(((pointers[pointers.length - 1].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x),
-				Math.floor(((pointers[pointers.length - 1].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y),
-				drawnCells.length-1
-			]
+		//TODO: reaname args to something less esoteric 
+		worker.postMessage({ type:"writeCell", args:[x, y, drawnCells.length-1]})
     //use the recieved cell state to set the state of any cells already drawn
-		}).then((response) => {
+		.then((response) => {
       try{
         for(const cell of drawnCells[response.index])
           if(cell.newState===-1)cell.newState = response.state===0?drawMode:0;
         if(pointers.length===0)sendDrawnCells(drawnCells[response.index], response.index);
-      }catch{}
+      }catch(e){throw new Error(e)}
 		});
 		break;
-		case 1: move(); break;
-		case 2: select(); break;
+		case 1: move(x,y); break;
+		case 2: select(x,y); break;
 	}
 }
 
@@ -786,15 +857,23 @@ canvas.onpointermove = (event) => {
 	if(pointers.length>0){
 		pointers[index].x=event.clientX - canvas.getBoundingClientRect().left;
 		pointers[index].y=event.clientY - canvas.getBoundingClientRect().top;
-		switch(editMode){
-			case 0: drawCell(); break;
-			case 1: move(); break;
-			case 2: select(); break;
+		let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
+		let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
+		if(pointers[0].objectBeingDragged!==null){
+			pointers[0].objectBeingDragged.drag(x,y);
+			render();
+		}else{
+			switch(editMode){
+				case 0: drawCell(x,y); break;
+				case 1: move(x,y); break;
+				case 2: select(x,y); break;
+			}
 		}
 	}
 }
 
 canvas.onpointerup = (event) => {
+	if(pointers[0].objectBeingDragged)pointers[0].objectBeingDragged.reset();
 	pointers = [];
 	const index = pointers.findIndex((p) => p.id === event.pointerId);
 	pointers.splice(index, 1);
@@ -884,7 +963,7 @@ function inputReset(){
 	drawnCells.forEach(sendDrawnCells);
   //shift the pattern if the finite area is resized
   //TODO: figure out why the finite area changes but finite array does not
-	if(GRID.finiteArea.isBeingDragged){
+	if(GRID.finiteArea.edgeBeingDragged!==0){
 		let resizedArray=new Array(GRID.finiteArea.right-GRID.finiteArea.left+(GRID.type===1?2:0));
 		for(let i=0; i<resizedArray.length;i++){
 			resizedArray[i]=new Array(GRID.finiteArea.bottom-GRID.finiteArea.top+(GRID.type===1?2:0));
@@ -899,19 +978,8 @@ function inputReset(){
 		GRID.finiteArray=resizedArray;
 	}
 
-	//keeps track of select area edges
-	edgeBeingDragged = 0;
-  selectArea.isBeingDragged=false;
-  GRID.finiteArea.isBeingDragged=false;
-  pasteArea.isBeingDragged=false;
-
 	//reset the markers
 	selectedMarker=-1;
-  //TODO: may be superfluous after changing the drag mechanics
-	if(selectArea.left===selectArea.right||selectArea.top===selectArea.bottom){
-		selectArea.isActive=false;
-		setActionMenu();
-	}
 }
 
 //gets key inputs
@@ -933,6 +1001,12 @@ function repeatingInput(){
       //drawstate can be !=-1 without a pointer due to async if you draw and move while busy(eg. loading a rule)
 			if(pointers.length>0&&drawnCells&&drawnCells[drawnCells.length-1]) drawCell();
 		}
+	}
+	if(pointers.length>0&&pointers[0].objectBeingDragged){
+		let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
+		let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
+		pointers[0].objectBeingDragged.drag(x,y);
+		render();
 	}
 }
 
@@ -968,7 +1042,7 @@ function getColor(cellState){
 
 //switch to draw mode
 function setDrawMode(){
-	if(pasteArea.isActive){
+	if(pasteArea){
 		resetClipboard();
 	}
 	captureScroll=true;
@@ -984,7 +1058,7 @@ function setMoveMode(){
 
 //swith to select mode
 function setSelectMode(){
-	if(selectArea.isActive===true&&editMode===2)selectArea.isActive=false;
+	if(selectArea&&editMode===2)selectArea=null;
 	resetClipboard();
 	setActionMenu();
 	editMode=2;
@@ -995,10 +1069,10 @@ function setSelectMode(){
 function setActionMenu(){
 	for(let button of document.getElementsByClassName("displayIf")){
 		button.style.display="none";
-		if(button.classList.contains("select")&&selectArea.isActive===true )button.style.display="block";
-		if(button.classList.contains("noSelect")&&selectArea.isActive===false)button.style.display="block";
-		if(button.classList.contains("noArea")&&selectArea.isActive===false&&pasteArea.isActive===false)button.style.display="block";
-		if(button.classList.contains("paste")&&pasteArea.isActive ===true )button.style.display="block";
+		if(button.classList.contains("select")&&selectArea)button.style.display="block";
+		if(button.classList.contains("noSelect")&&selectArea)button.style.display="block";
+		if(button.classList.contains("noArea")&&selectArea&&pasteArea)button.style.display="block";
+		if(button.classList.contains("paste")&&pasteArea)button.style.display="block";
 		if(button.classList.contains("marker")){
 			for (let i = 0; i < markers.length; i++) {
 				if(markers[i].activeState>1){
@@ -1153,7 +1227,7 @@ function replaceDropdownElement(target){
 function showPreview(element){
 	let previewCanvas=element.lastElementChild;
 	const clipboardIndex=parseInt(element.innerText);
-	if(clipboard[clipboardIndex].pattern[0]){
+	if(clipboard[clipboard]&&clipboard[clipboardIndex].pattern[0]){
 		if(clipboard[clipboardIndex].previewBitmap===null){
 			clipboard[clipboardIndex].previewBitmap=patternToBitmap(clipboard[clipboardIndex].pattern);
 		}
@@ -1175,6 +1249,7 @@ function changeCopySlot(target){
 	
 	//update the copy slot settings
 	activeClipboard=parseInt(target.innerText);
+	if(pasteArea) pasteArea=clipboard[activeClipboard];
 
 	replaceDropdownElement(target);
 	//update the menus containing "Select Area","Marker 1", "Marker 2", etc...
@@ -1190,12 +1265,7 @@ function changeGridType(target){
 	worker.postMessage({type:"setGrid", grid: targetIndex}).then((response) => {
 		GRID.type=targetIndex;
 		GRID.margin=targetIndex===1?1:0;
-		GRID.finiteArea.top = response[3];
-		//                      leftSidePos + pattern width - 2*margin
-		GRID.finiteArea.right = response[2] + response[0].length;
-		//                      topSidePos + pattern height - 2*margin
-		GRID.finiteArea.bottom = response[3] + response[0][0].length;
-		GRID.finiteArea.left = response[2];
+		GRID.finiteArea.setSize(...response);
 		render();
 		if(socket)socket.emit("changeGrid", response);
 	});
@@ -1225,81 +1295,76 @@ function deleteOption(target){
 }
 
 function selectAll(){
-  pasteArea.isActive=false;
-  selectArea.isActive=true;
+  pasteArea=null;
   setActionMenu();
   worker.postMessage({type: "getBounds"}).then((response) => {
-    selectArea.setSize(...response)  });
+    selectArea=new DraggableArea(...response)  });
   render();
 }
 
 function editArea(action, area=selectArea){
-	if(pasteArea.isActive){
+	if(pasteArea){
 		resetClipboard();
-	}else if(selectArea.isActive===true){
+	}else if(selectArea){
     worker.postMessage({type:action, area:area, drawMode:drawMode, clipboard:activeClipboard, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
       if(action==="copy"||action==="cut"){
-        clipboard[activeClipboard].pattern=response;
-        clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
-        pasteArea.top=selectArea.top;
-        pasteArea.left=selectArea.left;
-        clipboard[activeClipboard].shipInfo={dx:null,dy:null,phases:[],period:0};
-        selectArea.isActive=false;
+				clipboard[activeClipboard]=new ClipboardSlot(response, selectArea.left, selectArea.top);
+        selectArea=null;
       }
+			setActionMenu();
 			render();
     });
-		setActionMenu();
 		render();
 	}
 }
 
 function paste(){
 	captureScroll=true;
-	if(clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length!==0){
-		if(pasteArea.isActive){
-			worker.postMessage({type:"write", args: [pasteArea.left,pasteArea.top,activeClipboard]});
-			//TODO: reimplement this
-			// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
-		}else{
-			selectArea.isActive=false;
-			pasteArea.isActive=true;
-			editMode=1;
-			render();
+	if(pasteArea){
+		worker.postMessage({type:"write", args: [pasteArea.left,pasteArea.top,activeClipboard]});
+		//TODO: reimplement this
+		// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
+	}else{
+		if(clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length!==0){
+			pasteArea = clipboard[activeClipboard];
 		}
-		setActionMenu();
+		selectArea=null;
+		editMode=1;
+		render();
 	}
+	setActionMenu();
 }
 
 //flip the pattern to be pasted
 function flipDiag(){
-	let newPattern=new Array(clipboard[activeClipboard].pattern[0].length);
+	let newPattern=new Array(pasteArea.pattern[0].length);
 	for(let i=0;i<newPattern.length;i++){
-		newPattern[i]=new Array(clipboard[activeClipboard].pattern.length);
+		newPattern[i]=new Array(pasteArea.pattern.length);
 		for(let j=0;j<newPattern[0].length;j++){
-			newPattern[i][j]=clipboard[activeClipboard].pattern[j][i];
+			newPattern[i][j]=pasteArea.pattern[j][i];
 		}
 	}
 	pasteArea.left-=Math.trunc(newPattern.length/2-newPattern[0].length/2);
 	pasteArea.top +=Math.trunc(newPattern.length/2-newPattern[0].length/2);
-	clipboard[activeClipboard].pattern=newPattern;
+	pasteArea.pattern=newPattern;
 }
 
 //flip the pattern to be pasted
 function flipOrtho(direction="horizonal"){
-	let newPattern=new Array(clipboard[activeClipboard].pattern.length);
+	let newPattern=new Array(pasteArea.pattern.length);
 	for(let i=0;i<newPattern.length;i++){
-		newPattern[i]=new Array(clipboard[activeClipboard].pattern[0].length);
+		newPattern[i]=new Array(pasteArea.pattern[0].length);
 		for(let j=0;j<newPattern[0].length;j++){
 			if(direction==="horizonal"){
-				newPattern[i][j]=clipboard[activeClipboard].pattern[clipboard[activeClipboard].pattern.length-1-i][j];
+				newPattern[i][j]=pasteArea.pattern[pasteArea.pattern.length-1-i][j];
 			}else{
-				newPattern[i][j]=clipboard[activeClipboard].pattern[i][clipboard[activeClipboard].pattern[0].length-1-j];
+				newPattern[i][j]=pasteArea.pattern[i][pasteArea.pattern[0].length-1-j];
 			}
 		}
 	}
-	clipboard[activeClipboard].pattern=newPattern;
+	pasteArea.pattern=newPattern;
 	worker.postMessage({type:"transformClippedPattern", pattern:newPattern, clipboard:activeClipboard});
-	clipboard[activeClipboard].previewBitmap=patternToBitmap(clipboard[activeClipboard].pattern);
+	pasteArea.previewBitmap=patternToBitmap(pasteArea.pattern);
 	render();
 }
 
@@ -1349,7 +1414,7 @@ function updateSelectors(){
 					}
 				}
 			}
-			/*dropdownContents[i].innerHTML+='<button onclick="if(clipboard[activeClipboard].pattern&&pasteArea.isActive) analyzeShip(clipboard[activeClipboard],this.parentElement.parentElement.parentElement.info,pasteArea);changeOption(this);">Active Paste</button>';
+			/*dropdownContents[i].innerHTML+='<button onclick="if(pasteArea.pattern&&pasteArea) analyzeShip(pasteArea,this.parentElement.parentElement.parentElement.info,pasteArea);changeOption(this);">Active Paste</button>';
 			for(let j=0;j<markers.length;j++){
 				if(markers[j].activeState&&markers[j].pattern.length!==0){
 					dropdownContents[i].innerHTML+=`\n<button onclick="changeOption(this);">Marker ${j+1}</button>`;
@@ -1399,27 +1464,30 @@ function deleteMarker(){
 
 //set default view
 function setMark(){
-	if(pasteArea.isActive===true){
+	if(pasteArea){
 		for(let h=0;h<markers.length;h++){
 			if(markers[h].activeState===0){
-				pasteArea.isActive=false;
-				setActionMenu();
-				markers[h].pattern=clipboard[activeClipboard].pattern;
+				markers[h]=pasteArea;
+				// markers[h].pattern=pasteArea.pattern;
 				markers[h].activeState=1;
-				markers[h].top=pasteArea.top;
-				markers[h].right=pasteArea.left+clipboard[activeClipboard].pattern.length;
-				markers[h].bottom=pasteArea.top+clipboard[activeClipboard].pattern[0].length;
-				markers[h].left=pasteArea.left;
+				// markers[h].top=pasteArea.top;
+				// markers[h].right=pasteArea.left+pasteArea.pattern.length;
+				// markers[h].bottom=pasteArea.top+pasteArea.pattern[0].length;
+				// markers[h].left=pasteArea.left;
+				pasteArea=null;
+				setActionMenu();
 				break;
 			}
 		}
 		updateSelectors();
-	}else if(selectArea.isActive===true){
+	}else if(selectArea){
 		for(let h=0;h<markers.length;h++){
-			if(markers[h].activeState===0){
-				selectArea.isActive=false;
+			if(markers[h]===null||markers[h].activeState===0){
 				setActionMenu();
-				markers[h]={activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}, pattern:[]};
+				markers[h]=new Area(...selectArea.bounds);;//{activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}, pattern:[]};
+				markers[h].activeState = 1;
+				console.log(markers);
+				selectArea=null;
 				break;
 			}
 		}
@@ -1559,12 +1627,8 @@ function updateCanvasColor(updateCanvas=false){
 	}
 }
 
-function move(){
+function move(x, y){
 	if(pointers.length===0)return;
-	//coordinates of the touched cell
-	let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
-	let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
-
 	//if 2 fingers are touching the canvas
 	if(pointers.length>=2){
 		//scale the grid
@@ -1572,100 +1636,33 @@ function move(){
 		let currentSpacing = distance(pointers[0].x-pointers[1].x,pointers[0].y-pointers[1].y);
 		zoom(currentSpacing/pastSpacing, 0.5*(pointers[0].dragX+pointers[1].dragX), 0.5*(pointers[0].dragY+pointers[1].dragY), view.touchX,view.touchY,view.touchZ);
 	}else{
-    if(pasteArea.isBeingDragged){
-      pasteArea.left=x-pasteArea.pointerRelativeX;
-      pasteArea.top=y-pasteArea.pointerRelativeY;
-    }else if(GRID.finiteArea.isBeingDragged){
-      GRID.finiteArea.moveEdgeTo(x, y);
-    }else{
-      if(pasteArea.isActive&&clipboard[activeClipboard]&&x>=pasteArea.left&&x<pasteArea.left+clipboard[activeClipboard].pattern.length&&y>=pasteArea.top&&y<pasteArea.top+clipboard[activeClipboard].pattern[0].length){
-        pasteArea.isBeingDragged=true;
-        pasteArea.pointerRelativeX=x-pasteArea.left;
-        pasteArea.pointerRelativeY=y-pasteArea.top;
-      }else if(GRID.type!==0&&
-         x>=GRID.finiteArea.left-1-Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
-         x<GRID.finiteArea.right+1+Math.max(0,4/view.z+GRID.finiteArea.left-GRID.finiteArea.right)&&
-         y>=GRID.finiteArea.top-1-Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)&&
-         y<GRID.finiteArea.bottom+1+Math.max(0,4/view.z+GRID.finiteArea.top-GRID.finiteArea.bottom)){
-        //select the grid edges if necessary
-        if(x<Math.min(GRID.finiteArea.left+4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
-          edgeBeingDragged=3;
-          GRID.finiteArea.isBeingDragged=true;
-          isPlaying=false;
-        }else if(x>Math.max(GRID.finiteArea.right-4/view.z,(GRID.finiteArea.right+GRID.finiteArea.left)/2)){
-          edgeBeingDragged=1;
-          GRID.finiteArea.isBeingDragged=true;
-          isPlaying=false;
-        }
-        if(y<Math.min(GRID.finiteArea.top+4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
-          edgeBeingDragged=4;
-          GRID.finiteArea.isBeingDragged=true;
-          isPlaying=false;
-        }else if(y>Math.max(GRID.finiteArea.bottom-4/view.z,(GRID.finiteArea.bottom+GRID.finiteArea.top)/2)){
-          edgeBeingDragged=2;
-          GRID.finiteArea.isBeingDragged=true;
-          isPlaying=false;
-        }
-      }else{
-        //translate the grid
-        view.x=view.touchX+(pointers[0].deltaX)/cellWidth/view.z;
-        view.y=view.touchY+(pointers[0].deltaY)/cellWidth/view.z;
-        if(socket&&resetEvent===null)socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
-      }
-    }
+		if(pasteArea&&pasteArea.isWithinBounds(x,y)){
+			pointers[0].objectBeingDragged=pasteArea.attemptDrag(x,y);
+		}else if(GRID.type!==0&&GRID.finiteArea.isWithinBounds(x, y)){
+			//select the grid edges if necessary
+			console.log("in bounds?");
+			pointers[0].objectBeingDragged=GRID.finiteArea.attemptDrag(x,y);
+		}else{
+			//translate the grid
+			view.x=view.touchX+(pointers[0].deltaX)/cellWidth/view.z;
+			view.y=view.touchY+(pointers[0].deltaY)/cellWidth/view.z;
+			if(socket&&resetEvent===null)socket.emit("pan", {id:clientId, xPosition:view.x, yPosition:view.y});
+		}
 	}
 	worker.postMessage({type:"move",view:{x:view.x, y:view.y, z:view.z}});
 }
 
-function select(){
-	//coordinates of the touched cell
-	let x=Math.floor(((pointers[0].x-canvasWidth*0.5)/view.z+canvasWidth*0.5)/cellWidth+view.x);
-	let y=Math.floor(((pointers[0].y-canvasHeight*0.5)/view.z+canvasHeight*0.5)/cellWidth+view.y);
+function select(x, y){
 	// select an edge of the selectArea if the cursor is within the area
 	// the marigin for selecting is increased on the left and right if
 	// the area is narrower than 4/view.z, and likewise for the
 	// top and bottom.
-	if(selectArea.isActive===true&&edgeBeingDragged===0&&x>=selectArea.left-1-Math.max(0,4/view.z+selectArea.left-selectArea.right)&&x<selectArea.right+1+Math.max(0,4/view.z+selectArea.left-selectArea.right)&&y>=selectArea.top-1-Math.max(0,4/view.z+selectArea.top-selectArea.bottom)&&y<selectArea.bottom+1+Math.max(0,4/view.z+selectArea.top-selectArea.bottom)){
-		// the margin for selecting the edges within the selectArea
-		// is 4/view.z wide, but also less than the half the width
-		//
-		// edgebeingdragged:
-		//-4 = bottom -left edge
-		//-3 = left edge
-		//-2 = top-left edge
-		//-1 = bottom edge
-		// 0 = no edge is selected
-		// 1 = top edge
-		// 2 = bottom-right edge
-		// 3 = bottom edge
-		// 4 = top-right edge
-		//
-		//     +1
-		//      ^
-		// -3 < 0 > +3
-		//      v
-		//     -1
-		if(x<Math.min(selectArea.left+4/view.z,(selectArea.right+selectArea.left)/2)){
-			edgeBeingDragged=-3;
-			isPlaying=false;
-		}else if(x>Math.max(selectArea.right-4/view.z,(selectArea.right+selectArea.left)/2)){
-			edgeBeingDragged=3;
-			isPlaying=false;
-		}
-		if(y<Math.min(selectArea.top+4/view.z,(selectArea.bottom+selectArea.top)/2)){
-			edgeBeingDragged+=1;
-			isPlaying=false;
-		}else if(y>Math.max(selectArea.bottom-4/view.z,(selectArea.bottom+selectArea.top)/2)){
-			edgeBeingDragged-=1;
-			isPlaying=false;
-		}
+	if(selectArea&&selectArea.isWithinBounds(x,y)){
+		pointers[0].objectBeingDragged=selectArea.attemptDrag(x,y);
 		//deselect all markers
 		for(let h=0;h<markers.length;h++){
 			if(markers[h].activeState===2)markers[h].activeState=1;
 		}
-	}else if(selectArea.isActive===true&edgeBeingDragged!==0){
-		//drag bottom edge
-    selectArea.moveEdgeTo(x, y);
 	}else{
 		//marker[#].activestate:
 		//0 = inactive, not visible,
@@ -1688,7 +1685,7 @@ function select(){
 						selectedMarker=-2;
 						break;
 					}
-				}else if(markers[h].activeState===1&&x>=markers[h].left&&x<markers[h].right&&y>=markers[h].top&&y<markers[h].bottom){
+				}else if(markers[h].activeState===1&&markers[h].isWithinBounds(x,y)){
 					// if the current marker is active, unselected, and
 					// being clicked, then mark it for being selected
 					// later
@@ -1701,16 +1698,12 @@ function select(){
 		if(selectedMarker!==-1){
 			if(selectedMarker>=0)markers[selectedMarker].activeState=2;
 			setActionMenu();
-		}else if(selectArea.isActive===false){
+		}else if(selectArea===null){
 			// make a selectArea if there are no selectable markers
 			// this happens when the cursor clicks in an empty area.
-			selectArea.isActive=true;
+			selectArea=new DraggableArea(y, x+1, y+1, x);
+			pointers[0].objectBeingDragged=selectArea.attemptDrag(x, y);
 			setActionMenu();
-			edgeBeingDragged=0;
-			selectArea.top = y;
-			selectArea.right = x+1;
-			selectArea.bottom = y+1;
-			selectArea.left = x;
 		}
 	}
 	render();
@@ -1781,8 +1774,8 @@ function render(){
 
 	ctx.globalAlpha=0.25;
 	//draw selected area
-	if(selectArea.isActive===true){
-		if(editMode===2&&edgeBeingDragged!==0){
+	if(selectArea){
+		if(editMode===2&&selectArea.edgeBeingDragged!==0){
 			if(darkMode){
 				ctx.fillStyle="#555555";
 			}else{
@@ -1799,22 +1792,22 @@ function render(){
 	}
 
 	//draw paste
-	if(pasteArea.isActive&&clipboard[activeClipboard].pattern[0]){
+	if(pasteArea&&pasteArea.pattern[0]){
     if(darkMode){
       ctx.fillStyle="#333333";
     }else{
       ctx.fillStyle="#CCCCCC";
     }
-		ctx.fillRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,clipboard[activeClipboard].pattern.length*scaledCellWidth-1,clipboard[activeClipboard].pattern[0].length*scaledCellWidth-1);
+		ctx.fillRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.length*scaledCellWidth-1,pasteArea.pattern[0].length*scaledCellWidth-1);
 	}
 
 	ctx.globalAlpha=0.8;
-	if(pasteArea.isActive&&clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length){
-		for(let h=0;h<clipboard[activeClipboard].pattern.length;h++){
-			for(let i=0;i<clipboard[activeClipboard].pattern[0].length;i++){
-				if(clipboard[activeClipboard].pattern[h][i]>0){
+	if(pasteArea&&pasteArea.pattern.length){
+		for(let h=0;h<pasteArea.pattern.length;h++){
+			for(let i=0;i<pasteArea.pattern[0].length;i++){
+				if(pasteArea.pattern[h][i]>0){
 					//set the color
-					ctx.fillStyle=getColor(clipboard[activeClipboard].pattern[h][i]);
+					ctx.fillStyle=getColor(pasteArea.pattern[h][i]);
 					ctx.fillRect(canvasWidth*0.5-(canvasWidth*0.5+view.x*cellWidth)*view.z+(pasteArea.left+h)*scaledCellWidth,canvasHeight*0.5-(canvasHeight*0.5+view.y*cellWidth)*view.z+(pasteArea.top+i)*scaledCellWidth,scaledCellWidth,scaledCellWidth);
 				}
 			}
@@ -1856,8 +1849,8 @@ function render(){
 			ctx.stroke();
 		}
 	}
-	//draw a rectangle around each marker
-	for(let h=0;h<2;h++){
+	//draws the active marker after the inactive markers
+	for(let h=1;h<3;h++){
 		for(let i=0;i<markers.length;i++){
 			if(markers[i].activeState!==0){
 				if(markers[i].activeState===1){
@@ -1878,23 +1871,23 @@ function render(){
 					ctx.fillText((i+1),canvasWidth*0.5+1*view.z-((view.x-markers[i].left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-6*view.z-((view.y-markers[i].top)*cellWidth+canvasHeight*0.5)*view.z,(markers[i].right-markers[i].left)*scaledCellWidth-1);
 				}
 				ctx.lineWidth=5*view.z;
-				if((h===0&&markers[i].activeState===1)||(h===1&&markers[i].activeState===2)){
+				if(markers[i].activeState===h){
 					ctx.strokeRect(canvasWidth*0.5-((view.x-markers[i].left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-markers[i].top)*cellWidth+canvasHeight*0.5)*view.z,(markers[i].right-markers[i].left)*scaledCellWidth-1,(markers[i].bottom-markers[i].top)*scaledCellWidth-1);
 				}
 			}
 		}
 	}
 	//draw a rectangle around the right-selectArea.
-	if(selectArea.isActive===true){
+	if(selectArea){
 		ctx.lineWidth=3*view.z;
 		ctx.strokeStyle="#666666";
 		ctx.strokeRect(canvasWidth*0.5-((view.x-selectArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-selectArea.top)*cellWidth+canvasHeight*0.5)*view.z,(selectArea.right-selectArea.left)*scaledCellWidth-1,(selectArea.bottom-selectArea.top)*scaledCellWidth-1);
 	}
 	//draw a rectangle around the pattern to be pasted.
-	if(pasteArea.isActive&&clipboard[activeClipboard].pattern[0]){
+	if(pasteArea&&pasteArea.pattern[0]){
 		ctx.lineWidth=3*view.z;
 		ctx.strokeStyle="#666666";
-		ctx.strokeRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,clipboard[activeClipboard].pattern.length*scaledCellWidth-1,clipboard[activeClipboard].pattern[0].length*scaledCellWidth-1);
+		ctx.strokeRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.length*scaledCellWidth-1,pasteArea.pattern[0].length*scaledCellWidth-1);
 	}
 
 	//draw the border of the finite grids
@@ -1943,7 +1936,7 @@ function scaleCanvas(){
 
 
 function resetClipboard(){
-	pasteArea.isActive=false;
+	pasteArea=null;
 	if(activeClipboard===0)
 		activeClipboard=parseInt(document.getElementById("copyMenu").previousElementSibling.innerText);
 }
@@ -1968,11 +1961,8 @@ function importRLE(rleText){
 			setView(...response.view);
 		}else{
 			activeClipboard=0;
-			clipboard[activeClipboard].pattern=response.pattern;
 			editMode=1;
-			pasteArea.isActive=true;
-			pasteArea.left=-Math.ceil(response.pattern.length/2);
-			pasteArea.top=-Math.ceil(response.pattern[0].length/2);
+			pasteArea=new ClipboardSlot(response.pattern,-Math.ceil(response.pattern.length/2),-Math.ceil(response.pattern[0].length/2));
       render();
 			setActionMenu();
 		}
@@ -1983,7 +1973,7 @@ function importRLE(rleText){
 }
 
 function exportRLE(){
-	return worker.postMessage({type:"export", ruleFormat:getFormat(), outputFormat:"RLE", inputPattern:selectArea.isActive?selectArea:"Grid"});
+	return worker.postMessage({type:"export", ruleFormat:getFormat(), outputFormat:"RLE", inputPattern:selectArea??"Grid"});
 }
 
 function clearRLE(){

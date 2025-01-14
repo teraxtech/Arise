@@ -106,7 +106,6 @@ var
 	maxDepth=20000,
 	//metric of the number of nodes in the hashtable
 	numberOfNodes=0,
-	pasteArea={isActive:false,top:0,left:0,pointerRelativeX:0,pointerRelativeY:0},
 	//point where the simulator resets to
 	resetEvent=null,
 	//rule stored internally as an n-tree for a n state rule
@@ -1135,7 +1134,7 @@ function redo(){
 
 async function identify(area){
 	const startTime=Date.now();
-  area = area.isActive ? area : new Area(...calculateBounds(GRID));
+  area = area??new Area(...calculateBounds(GRID));
 	let patternInfo=findShip(readPattern(area),area);
 	if(patternInfo.period===0){
     //TODO: send alert back to UI thread
@@ -1143,7 +1142,7 @@ async function identify(area){
 		return;
 	}
   patternInfo.timeElapsed=Date.now()-startTime;
-  postMessage({type:"identificationResults",value:patternInfo});
+  postMessage({type:"identificationResults", area, value:patternInfo});
 }
 
 function findPattern(area,pattern){
@@ -1582,12 +1581,6 @@ function importRLE(rleText){
 		}else{
 			activeClipboard=0;
 			clipboard[activeClipboard].pattern=parsedRLE.pattern;
-			editMode=1;
-			pasteArea.isActive=true;
-			pasteArea.left=-Math.ceil(parsedRLE.pattern.length/2);
-			pasteArea.top=-Math.ceil(parsedRLE.pattern[0].length/2);
-			//TODO: rewrite
-			// setActionMenu();
 		}
 		return {pattern:parsedRLE.pattern, rule:parsedRLE.rule, writeDirectly:writeDirectlyToGRID, view:calculateBounds(GRID)};
 	}
@@ -1922,7 +1915,7 @@ function setGridType(gridNumber){
 
 	importPattern(results.pattern,gridNumber,results.yOffset,results.xOffset);
 	currentEvent=new EventNode(currentEvent,"changeGrid");
-	return [results.pattern,gridNumber,results.xOffset,results.yOffset];
+	return [results.yOffset,results.xOffset+results.pattern.length,results.yOffset+results.pattern[0].length,results.xOffset];
 }
 
 function getTopBorder(node){
