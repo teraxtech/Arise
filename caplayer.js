@@ -13,6 +13,19 @@ class Pointer {
 	get deltaY() { return this.dragY - this.y; }
 }
 
+//accepts 0, 2, or 3 arguments to create an empty pattern object
+//accepts 1 argument to clone the argument 
+function Pattern(width=0, height=0, fill=0){
+	let emptyPattern = new Array(width).fill(null).map(()=>Array(height).fill(fill));
+	if(arguments.length===1)emptyPattern = arguments[0];
+
+	Object.defineProperty(emptyPattern, "isEmpty", {get: () => emptyPattern.length===0||emptyPattern[0].length===0});
+	Object.defineProperty(emptyPattern, "width", {get: () => emptyPattern.length});
+	Object.defineProperty(emptyPattern, "height", {get: () => emptyPattern.length===0?0:emptyPattern[0].length});
+	
+	return emptyPattern;
+}
+
 class Area {
   constructor(top=0, right=0, bottom=0, left=0){
     this.top=top;
@@ -52,7 +65,7 @@ class DraggableArea extends Area {
 		super(top, right, bottom, left)
 		this.edgeBeingDragged = 0;
 	}
-	
+
 	//check if the coordinates allows something to be dragged, return null otherwise
 	attemptDrag(x,y){
 		// the margin for selecting the edges within the selectArea
@@ -92,7 +105,7 @@ class DraggableArea extends Area {
 	}
 
 	//called to update the object if it is being dragged
-  drag(x, y){
+	drag(x, y){
 		//drag top edge
 		if(mod(this.edgeBeingDragged,3)===2){
       this.bottom=y+1;
@@ -148,13 +161,13 @@ class DraggableArea extends Area {
 
 class ClipboardSlot extends DraggableArea {
 	constructor(pattern, left=0, top=0){
-		super(top, left+pattern.length, top+pattern[0].length, left)
-    this.isActive=false;
-    this.pointerRelativeX=0;
-    this.pointerRelativeY=0;
-    this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
-    this.pattern=pattern;
-    this.previewBitmap=patternToBitmap(pattern);
+		super(top, left+pattern.width, top+pattern.height, left)
+		this.isActive=false;
+		this.pointerRelativeX=0;
+		this.pointerRelativeY=0;
+		this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
+		this.pattern=pattern;
+		this.previewBitmap=patternToBitmap(pattern);
 	}
 
 	attemptDrag(x,y){
@@ -166,10 +179,10 @@ class ClipboardSlot extends DraggableArea {
 	reset(){};
 
 	drag(x,y){
-    this.bottom+=y-this.top-pasteArea.pointerRelativeY;
-    this.right+=x-this.left-pasteArea.pointerRelativeX;
-    this.top=y-pasteArea.pointerRelativeY;
-    this.left=x-pasteArea.pointerRelativeX;
+		this.bottom+=y-this.top-pasteArea.pointerRelativeY;
+		this.right+=x-this.left-pasteArea.pointerRelativeX;
+		this.top=y-pasteArea.pointerRelativeY;
+		this.left=x-pasteArea.pointerRelativeX;
 	}
 }
 
@@ -216,7 +229,7 @@ class Thread{
 				updateCanvasColor(true);
 				break;
 			case "render":
-				visiblePattern = e.data.pattern;
+				visiblePattern=new Pattern(e.data.pattern);
 				visiblePatternLocation.y = e.data.top;
 				visiblePatternLocation.x = e.data.left;
 				if(GRID.backgroundState!==e.data.backgroundState){
@@ -274,7 +287,7 @@ var
 	//width of each cell
 	cellWidth=20,
 	//copy paste clipboard
-	clipboard=Array.from({length: 3}, () => new Area()),
+	clipboard=Array.from({length: 3}, () => new ClipboardSlot(new Pattern())),
 	//canvas context
 	ctx=canvas.getContext("2d"),
 	//this determines if the UI is using the dark theme.
@@ -300,7 +313,7 @@ var
 		//data for the cells on an infinte grid
 		head:null,
 		//data for the cells on a finite grid
-		finiteArray:[],
+		finiteArray:new Pattern(),
 		//area representing a finite portion of the grid
 		finiteArea:new DraggableArea(),
     //margin of permantly off cells around the pattern
@@ -315,7 +328,7 @@ var
 	//array of key states
 	key=[],
 	//these are the 6 markers which can be placed on the grid
-	markers=Array(6).fill().map(() => ({activeState:0,top:0,right:0,bottom:0,left:0,pattern:[],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}})),
+	markers=Array(6).fill().map(() => ({activeState:0,top:0,right:0,bottom:0,left:0,pattern:new Pattern(),shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}})),
 	//list of mouse,pointers, touch instances, and other styluses
 	pointers=[],
 	//TODO: store dimensions as array and add getters for top, left, etc...
@@ -346,7 +359,7 @@ var
 		//position of the view for when a pointer clicks or touches
 		touchX:0,touchY:0,touchZ:1,
 	},
-	visiblePattern=[[]],
+	visiblePattern=new Pattern(),
 	visiblePatternLocation={x:0,y:0},
 	//set to true if the sim was reset in/before the current generation
 	wasReset=false,
@@ -449,7 +462,7 @@ function importSettings(){
 				}
 				if(i>0){
 					document.getElementById("copyMenu").innerHTML+=`<button onclick="changeCopySlot(this);" onmouseenter="showPreview(this);">${i+2}<canvas class="patternPreview"></canvas></button>`;
-					clipboard.push({pattern:[],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null});
+					clipboard.push({pattern:new Pattern(),shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null});
 				}
 			}
 			break;
@@ -491,7 +504,7 @@ function importSettings(){
 		case "marker":
 			attributes=value.split(".").map(str => (isNaN(str)||str==="")?str:parseInt(str));
 			for(let i=0;i<attributes.length;i+=7){
-				markers[attributes[i]]={activeState:1,top:attributes[i+1],right:attributes[i+2],bottom:attributes[i+3],left:attributes[i+4],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:[]};
+				markers[attributes[i]]={activeState:1,top:attributes[i+1],right:attributes[i+2],bottom:attributes[i+3],left:attributes[i+4],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:new Pattern()};
 				if(attributes[i+5]!=="")markers[attributes[i]].pattern=baseNToPattern(attributes[i+2]-attributes[i+4],attributes[i+3]-attributes[i+1],LZ77ToBaseN(attributes[i+5]));
 				if(attributes[i+6]&&attributes[i+6]!==""){
 					const shipInfo=attributes[i+6].split(",");
@@ -964,11 +977,10 @@ function inputReset(){
   //shift the pattern if the finite area is resized
   //TODO: figure out why the finite area changes but finite array does not
 	if(GRID.finiteArea.edgeBeingDragged!==0){
-		let resizedArray=new Array(GRID.finiteArea.right-GRID.finiteArea.left+(GRID.type===1?2:0));
+		let resizedArray=new Pattern(GRID.finiteArea.right-GRID.finiteArea.left+(GRID.type===1?2:0),GRID.finiteArea.bottom-GRID.finiteArea.top+(GRID.type===1?2:0));
 		for(let i=0; i<resizedArray.length;i++){
-			resizedArray[i]=new Array(GRID.finiteArea.bottom-GRID.finiteArea.top+(GRID.type===1?2:0));
-			for(let j=0; j<resizedArray[0].length;j++){
-				if(i>=GRID.finiteArea.left-GRID.finiteArea.left+GRID.margin&&i<GRID.finiteArea.left-GRID.finiteArea.left+GRID.finiteArray.length-GRID.margin&&j>=GRID.finiteArea.top-GRID.finiteArea.top+GRID.margin&&j<GRID.finiteArea.top-GRID.finiteArea.top+GRID.finiteArray[0].length-GRID.margin){
+			for(let j=0; j<resizedArray.height;j++){
+				if(i>=GRID.finiteArea.left-GRID.finiteArea.left+GRID.margin&&i<GRID.finiteArea.left-GRID.finiteArea.left+GRID.finiteArray.width-GRID.margin&&j>=GRID.finiteArea.top-GRID.finiteArea.top+GRID.margin&&j<GRID.finiteArea.top-GRID.finiteArea.top+GRID.finiteArray.height-GRID.margin){
 					resizedArray[i][j]=GRID.finiteArray[i+GRID.finiteArea.left-GRID.finiteArea.left][j+GRID.finiteArea.top-GRID.finiteArea.top];
 				}else{
 					resizedArray[i][j]=GRID.backgroundState;
@@ -1113,8 +1125,9 @@ function setDrawMenu(){
 }
 
 function patternToBitmap(pattern){
-	const cellWidth = 200/(pattern.length);
-	const canvasWidth=200, canvasHeight=Math.ceil(cellWidth*(pattern[0].length));
+	if(pattern.isEmpty)return null;
+	const cellWidth = 200/(pattern.width);
+	const canvasWidth=200, canvasHeight=Math.ceil(cellWidth*(pattern.height));
 	const offscreenCanvas = new OffscreenCanvas(canvasWidth,canvasHeight);
 	const context = offscreenCanvas.getContext("2d");
 	context.scale(1,1);
@@ -1125,7 +1138,7 @@ function patternToBitmap(pattern){
 		context.strokeStyle="#000000";
 	}
 
-	for(let i=0;i<pattern.length;i++){
+	for(let i=0;i<pattern.width;i++){
 		for(let j=0;j<pattern[i].length;j++){
 			context.fillStyle=getColor(pattern[i][j]);
 			context.fillRect(i*cellWidth,j*cellWidth,1*cellWidth,1*cellWidth);
@@ -1133,13 +1146,13 @@ function patternToBitmap(pattern){
 	}
 	context.lineWidth=1;
 	context.beginPath();
-	for(let i=0;i<=pattern.length;i++){
+	for(let i=0;i<=pattern.width;i++){
 		context.moveTo(i*cellWidth,0);
-		context.lineTo(i*cellWidth,pattern[0].length*cellWidth);
+		context.lineTo(i*cellWidth,pattern.height*cellWidth);
 	}
-	for(let i=0;i<=pattern[0].length;i++){
+	for(let i=0;i<=pattern.height;i++){
 		context.moveTo(0,i*cellWidth);
-		context.lineTo(pattern.length*cellWidth,i*cellWidth);
+		context.lineTo(pattern.width*cellWidth,i*cellWidth);
 	}
 	context.stroke();
 
@@ -1244,7 +1257,7 @@ function changeCopySlot(target){
 	if(document.getElementById("copyMenu").lastElementChild===target){
 		duplicateLastChild(dropdown);
 		dropdown.lastElementChild.innerHTML=`${dropdown.children.length}<canvas class="patternPreview"></canvas>`;
-		clipboard.push({pattern:[],shipInfo:{dx:null,dy:null,phases:[]},previewBitmap:null});
+		clipboard.push({pattern:new Pattern(),shipInfo:{dx:null,dy:null,phases:[]},previewBitmap:null});
 	}
 	
 	//update the copy slot settings
@@ -1308,7 +1321,7 @@ function editArea(action, area=selectArea){
 	}else if(selectArea){
     worker.postMessage({type:action, area:area, drawMode:drawMode, clipboard:activeClipboard, randomFillPercent:document.getElementById("density").value/100}).then((response) => {
       if(action==="copy"||action==="cut"){
-				clipboard[activeClipboard]=new ClipboardSlot(response, selectArea.left, selectArea.top);
+				clipboard[activeClipboard]=new ClipboardSlot(new Pattern(response), selectArea.left, selectArea.top);
         selectArea=null;
       }
 			setActionMenu();
@@ -1325,7 +1338,7 @@ function paste(){
 		//TODO: reimplement this
 		// if(socket&&resetEvent===null)socket.emit("paste", Date.now(), currentEvent.paste);
 	}else{
-		if(clipboard[activeClipboard]&&clipboard[activeClipboard].pattern.length!==0){
+		if(clipboard[activeClipboard]&&!clipboard[activeClipboard].pattern.isEmpty){
 			pasteArea = clipboard[activeClipboard];
 		}
 		selectArea=null;
@@ -1335,30 +1348,29 @@ function paste(){
 	setActionMenu();
 }
 
+//TODO: have these funtions take the pattern as an argument
 //flip the pattern to be pasted
 function flipDiag(){
-	let newPattern=new Array(pasteArea.pattern[0].length);
-	for(let i=0;i<newPattern.length;i++){
-		newPattern[i]=new Array(pasteArea.pattern.length);
-		for(let j=0;j<newPattern[0].length;j++){
+	let newPattern=new Pattern(pasteArea.pattern.height, pasteArea.pattern.width);
+	for(let i=0;i<newPattern.width;i++){
+		for(let j=0;j<newPattern.height;j++){
 			newPattern[i][j]=pasteArea.pattern[j][i];
 		}
 	}
-	pasteArea.left-=Math.trunc(newPattern.length/2-newPattern[0].length/2);
-	pasteArea.top +=Math.trunc(newPattern.length/2-newPattern[0].length/2);
+	pasteArea.left-=Math.trunc(newPattern.width/2-newPattern.height/2);
+	pasteArea.top +=Math.trunc(newPattern.width/2-newPattern.height/2);
 	pasteArea.pattern=newPattern;
 }
 
 //flip the pattern to be pasted
 function flipOrtho(direction="horizonal"){
-	let newPattern=new Array(pasteArea.pattern.length);
-	for(let i=0;i<newPattern.length;i++){
-		newPattern[i]=new Array(pasteArea.pattern[0].length);
-		for(let j=0;j<newPattern[0].length;j++){
+	let newPattern=new Pattern(pasteArea.pattern.width, pasteArea.pattern.height);
+	for(let i=0;i<newPattern.width;i++){
+		for(let j=0;j<newPattern.height;j++){
 			if(direction==="horizonal"){
-				newPattern[i][j]=pasteArea.pattern[pasteArea.pattern.length-1-i][j];
+				newPattern[i][j]=pasteArea.pattern[pasteArea.pattern.width-1-i][j];
 			}else{
-				newPattern[i][j]=pasteArea.pattern[i][pasteArea.pattern[0].length-1-j];
+				newPattern[i][j]=pasteArea.pattern[i][pasteArea.pattern.height-1-j];
 			}
 		}
 	}
@@ -1378,18 +1390,18 @@ function updateSelectors(){
 		if(dropdownContents[i].className.includes("areas")){
 			for(let j=0;j<markers.length;j++){
 				if(elementIndex>=dropdownContents[i].children.length){
-					if(markers[j].activeState>0&&markers[j].pattern.length===0){
+					if(markers[j].activeState>0&&markers[j].pattern.isEmpty){
 						dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`;
 						elementIndex++;
 					}
 				}else{
 					const markerIndex=parseInt(dropdownContents[i].children[elementIndex].innerHTML.slice(7))-1;
-					if(markers[j].activeState>0&&markers[j].pattern.length===0&&j!==markerIndex){
+					if(markers[j].activeState>0&&markers[j].pattern.isEmpty&&j!==markerIndex){
 						dropdownContents[i].children[elementIndex-1].insertAdjacentHTML("afterend",`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`);
 						elementIndex++;
-					}else if(markers[j].activeState>0&&markers[j].pattern.length===0&&j===markerIndex){
+					}else if(markers[j].activeState>0&&markers[j].pattern.isEmpty&&j===markerIndex){
 						elementIndex++;
-					}else if((markers[j].activeState===0||markers[j].pattern.length===0)&&j===markerIndex){
+					}else if((markers[j].activeState===0||markers[j].pattern.isEmpty)&&j===markerIndex){
 						dropdownContents[i].children[elementIndex].remove();
 					}
 				}
@@ -1398,25 +1410,25 @@ function updateSelectors(){
 		if(dropdownContents[i].className.includes("pattern-marker")){
 			for(let j=0;j<markers.length;j++){
 				if(elementIndex>=dropdownContents[i].children.length){
-					if(markers[j].activeState>0&&markers[j].pattern.length!==0){
+					if(markers[j].activeState>0&&!markers[j].pattern.isEmpty){
 						dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`;
 						elementIndex++;
 					}
 				}else{
 					const markerIndex=parseInt(dropdownContents[i].children[elementIndex].innerHTML.slice(7))-1;
-					if(markers[j].activeState>0&&markers[j].pattern.length!==0&&j!==markerIndex){
+					if(markers[j].activeState>0&&!markers[j].pattern.isEmpty&&j!==markerIndex){
 						dropdownContents[i].children[elementIndex-1].insertAdjacentHTML("afterend",`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`);
 						elementIndex++;
-					}else if(markers[j].activeState>0&&markers[j].pattern.length!==0&&j===markerIndex){
+					}else if(markers[j].activeState>0&&!markers[j].pattern.isEmpty&&j===markerIndex){
 						elementIndex++;
-					}else if((markers[j].activeState===0||markers[j].pattern.length!==0)&&j===markerIndex){
+					}else if((markers[j].activeState===0||!markers[j].pattern.isEmpty)&&j===markerIndex){
 						dropdownContents[i].children[elementIndex].remove();
 					}
 				}
 			}
 			/*dropdownContents[i].innerHTML+='<button onclick="if(pasteArea.pattern&&pasteArea) analyzeShip(pasteArea,this.parentElement.parentElement.parentElement.info,pasteArea);changeOption(this);">Active Paste</button>';
 			for(let j=0;j<markers.length;j++){
-				if(markers[j].activeState&&markers[j].pattern.length!==0){
+				if(markers[j].activeState&&!markers[j].pattern.isEmpty){
 					dropdownContents[i].innerHTML+=`\n<button onclick="changeOption(this);">Marker ${j+1}</button>`;
 				}
 			}*/
@@ -1454,7 +1466,7 @@ function fitView(){
 function deleteMarker(){
 	for(let h = 0;h<markers.length;h++){
 		if(markers[h].activeState===2){
-			markers[h]={activeState:0,top:0,right:0,bottom:0,left:0,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:[]};
+			markers[h]={activeState:0,top:0,right:0,bottom:0,left:0,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:new Pattern()};
 		}
 	}
 	updateSelectors();
@@ -1468,12 +1480,7 @@ function setMark(){
 		for(let h=0;h<markers.length;h++){
 			if(markers[h].activeState===0){
 				markers[h]=pasteArea;
-				// markers[h].pattern=pasteArea.pattern;
 				markers[h].activeState=1;
-				// markers[h].top=pasteArea.top;
-				// markers[h].right=pasteArea.left+pasteArea.pattern.length;
-				// markers[h].bottom=pasteArea.top+pasteArea.pattern[0].length;
-				// markers[h].left=pasteArea.left;
 				pasteArea=null;
 				setActionMenu();
 				break;
@@ -1484,7 +1491,7 @@ function setMark(){
 		for(let h=0;h<markers.length;h++){
 			if(markers[h]===null||markers[h].activeState===0){
 				setActionMenu();
-				markers[h]=new Area(...selectArea.bounds);;//{activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}, pattern:[]};
+				markers[h]=new Area(...selectArea.bounds);;//{activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}, pattern:new Pattern()};
 				markers[h].activeState = 1;
 				console.log(markers);
 				selectArea=null;
@@ -1724,8 +1731,8 @@ function renderPattern(pattern, x, y){
 	
 	//TODO: fix rendering B0 rules with strobing enabled
 	//draw for the pattern
-	for(let i = 0; i < pattern.length; i++){
-		for (let j = 0; j < pattern[0].length; j++) {
+	for(let i = 0; i < pattern.width; i++){
+		for (let j = 0; j < pattern.height; j++) {
 			if(GRID.backgroundState!==pattern[i][j]){
 				ctx.fillStyle=getColor(pattern[i][j]);
 				ctx.fillRect((i-30+30/view.z+dx)*scaledCellWidth,(j-20+20/view.z+dy)*scaledCellWidth,scaledCellWidth,view.z*cellWidth);
@@ -1792,19 +1799,17 @@ function render(){
 	}
 
 	//draw paste
-	if(pasteArea&&pasteArea.pattern[0]){
+	if(pasteArea){
     if(darkMode){
       ctx.fillStyle="#333333";
     }else{
       ctx.fillStyle="#CCCCCC";
     }
-		ctx.fillRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.length*scaledCellWidth-1,pasteArea.pattern[0].length*scaledCellWidth-1);
-	}
+		ctx.fillRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.width*scaledCellWidth-1,pasteArea.pattern.height*scaledCellWidth-1);
 
-	ctx.globalAlpha=0.8;
-	if(pasteArea&&pasteArea.pattern.length){
-		for(let h=0;h<pasteArea.pattern.length;h++){
-			for(let i=0;i<pasteArea.pattern[0].length;i++){
+		ctx.globalAlpha=0.8;
+		for(let h=0;h<pasteArea.pattern.width;h++){
+			for(let i=0;i<pasteArea.pattern.height;i++){
 				if(pasteArea.pattern[h][i]>0){
 					//set the color
 					ctx.fillStyle=getColor(pasteArea.pattern[h][i]);
@@ -1815,8 +1820,8 @@ function render(){
 	}
 	
 	for(let i=0;i<markers.length;i++)if(markers[i].pattern&&markers[i].activeState!==0){
-		for(let h=0;h<markers[i].pattern.length;h++){
-			for(let j=0;j<markers[i].pattern[0].length;j++){
+		for(let h=0;h<markers[i].pattern.width;h++){
+			for(let j=0;j<markers[i].pattern.height;j++){
 				if(markers[i].pattern[h][j]>0){
 					ctx.fillStyle=getColor(markers[i].pattern[h][j]);
 					ctx.fillRect(canvasWidth*0.5-(canvasWidth*0.5+view.x*cellWidth)*view.z+(markers[i].left+h)*scaledCellWidth,canvasHeight*0.5-(canvasHeight*0.5+view.y*cellWidth)*view.z+(markers[i].top+j)*scaledCellWidth,scaledCellWidth,scaledCellWidth);
@@ -1887,7 +1892,7 @@ function render(){
 	if(pasteArea&&pasteArea.pattern[0]){
 		ctx.lineWidth=3*view.z;
 		ctx.strokeStyle="#666666";
-		ctx.strokeRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.length*scaledCellWidth-1,pasteArea.pattern[0].length*scaledCellWidth-1);
+		ctx.strokeRect(canvasWidth*0.5-((view.x-pasteArea.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-pasteArea.top)*cellWidth+canvasHeight*0.5)*view.z,pasteArea.pattern.width*scaledCellWidth-1,pasteArea.pattern.height*scaledCellWidth-1);
 	}
 
 	//draw the border of the finite grids
@@ -1962,7 +1967,7 @@ function importRLE(rleText){
 		}else{
 			activeClipboard=0;
 			editMode=1;
-			pasteArea=new ClipboardSlot(response.pattern,-Math.ceil(response.pattern.length/2),-Math.ceil(response.pattern[0].length/2));
+			pasteArea=new ClipboardSlot(new Pattern(response.pattern),-Math.ceil(response.pattern.width/2),-Math.ceil(response.pattern.height/2));
       render();
 			setActionMenu();
 		}
@@ -2034,7 +2039,7 @@ if(socket)socket.on("relaySendGrid", msg => {
 	if(GRID.type!==0){
 		GRID.margin=msg.finite.margin;
 		GRID.finiteArea.setSize(msg.finite);
-    GRID.finiteArray=msg.data;
+    GRID.finiteArray=new Pattern(msg.data);
 		console.log(GRID.finiteArray);
 		console.log(GRID.finiteArea);
 	}else{

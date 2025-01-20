@@ -1389,7 +1389,7 @@ function setSalvoIteration(args, salvoInfo){
 			clearedArray[i]=new Array(salvoArea.bottom-salvoArea.top);
 			clearedArray[i].fill(0);
 		}
-		const previousPattern=readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left);
+		const previousPattern=readPattern(salvoArea);
 		worker.postMessage({type:"write", args: [salvoArea.left,salvoArea.top, clearedArray]});
 
 		for(let i=0;i<salvoInfo.progress.slice(-1)[0].delay.length;i++){
@@ -1401,7 +1401,7 @@ function setSalvoIteration(args, salvoInfo){
 			worker.postMessage({type:"write", args: [xPosition,yPosition, pattern]});
 		}
 		
-		if(socket)socket.emit("paste", Date.now(), {newPatt:[salvoArea.left,salvoArea.top,readPattern(salvoArea.top,salvoArea.right, salvoArea.bottom,salvoArea.left)], oldPatt:[salvoArea.left,salvoArea.top,previousPattern]});
+		if(socket)socket.emit("paste", Date.now(), {newPatt:[salvoArea.left,salvoArea.top,readPattern(salvoArea)], oldPatt:[salvoArea.left,salvoArea.top,previousPattern]});
 		//TODO: set iteration value u
 		// optionElement.children[4].value=value;
 		currentEvent=new EventNode(currentEvent,"generate salvo");
@@ -1491,12 +1491,12 @@ async function updateSearchOption(data){
 			let pattern=[];
 			if(!args[0]||!args[1])return false;
 			if(args[0]==="Select Area"&&selectArea.isActive){
-				pattern=readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left);
+				pattern=readPattern(selectArea);
 			}else if(args[0].includes("Marker")){
 				//get marker based on the number within the button element
 				const marker=markers[parseInt(args[0].slice(7))-1];
 				if(marker.activeState!==0){
-					pattern=readPattern(marker.top,marker.right,marker.bottom,marker.left);
+					pattern=readPattern(marker);
 				}else{
 					pattern=[];
 				}
@@ -1506,11 +1506,11 @@ async function updateSearchOption(data){
 			}
 			if(!pattern||pattern.length===0)return false;
 			if(args[1]==="Select Area"){
-				return selectArea.isActive&&-1!==findPattern(readPattern(selectArea.top,selectArea.right,selectArea.bottom,selectArea.left),pattern).x;
+				return selectArea.isActive&&-1!==findPattern(readPattern(selectArea),pattern).x;
 			}else if(args[1].includes("Marker")){
 				const marker=markers[parseInt(args[1][7])-1];
 				if(marker.activeState!==0){
-					return -1!==findPattern(readPattern(marker.top,marker.right,marker.bottom,marker.left),pattern).x;
+					return -1!==findPattern(readPattern(marker),pattern).x;
 				}else{
 					return false;
 				}
