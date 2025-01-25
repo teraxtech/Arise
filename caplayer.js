@@ -62,7 +62,7 @@ class Area {
 
 class DraggableArea extends Area {  
 	constructor(top=0, right=0, bottom=0, left=0){
-		super(top, right, bottom, left)
+		super(top, right, bottom, left);
 		this.edgeBeingDragged = 0;
 	}
 
@@ -161,11 +161,9 @@ class DraggableArea extends Area {
 
 class ClipboardSlot extends DraggableArea {
 	constructor(pattern, left=0, top=0){
-		super(top, left+pattern.width, top+pattern.height, left)
-		this.isActive=false;
+		super(top, left+pattern.width, top+pattern.height, left);
 		this.pointerRelativeX=0;
 		this.pointerRelativeY=0;
-		this.shipInfo={dx:null,dy:null,shipOffset:null,phases:[],period:0};
 		this.pattern=pattern;
 		this.previewBitmap=patternToBitmap(pattern);
 	}
@@ -184,6 +182,15 @@ class ClipboardSlot extends DraggableArea {
 		this.top=y-pasteArea.pointerRelativeY;
 		this.left=x-pasteArea.pointerRelativeX;
 	}
+}
+
+class Marker extends Area {
+	constructor(area) {
+		super(area.top, area.right, area.bottom, area.left);
+		this.pattern=area.pattern ?? new Pattern();
+	}
+	static list = [];
+	static selectedIndex = null;
 }
 
 //TODO: implement an object to handle backaend state and methods, possibly with general worker class.
@@ -304,8 +311,6 @@ var
 	clearDrawnCells=false,
 	//this determines whether the simulation is in draw, move, or select mode
 	editMode=0,
-	//time elapsed
-	genCount=0,
 	//state of the grid
 	GRID={
 		//which kind of grid is being used
@@ -327,8 +332,6 @@ var
 	isPlaying=false,
 	//array of key states
 	key=[],
-	//these are the 6 markers which can be placed on the grid
-	markers=Array(6).fill().map(() => ({activeState:0,top:0,right:0,bottom:0,left:0,pattern:new Pattern(),shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}})),
 	//list of mouse,pointers, touch instances, and other styluses
 	pointers=[],
 	//TODO: store dimensions as array and add getters for top, left, etc...
@@ -349,8 +352,6 @@ var
 	//selected area
 	//TODO: store dimensions as array and add getters for top, left, etc...
 	selectArea=null,
-	//index of the marker being selected and interacted with
-	selectedMarker=-1,
 	//keeps track of when the last generation occurred
 	timeOfLastGeneration=0,
 	//position of the current view(x/y position,zoom)
@@ -409,6 +410,10 @@ function distance(num1, num2){
 	return Math.sqrt(num1*num1+num2*num2);
 }
 
+function getNum(string){
+	return parseInt(string.match(/\d+/)[0]);
+}
+
 function importSettings(){
 	let params= window.location.search.split("&");
 
@@ -453,16 +458,9 @@ function importSettings(){
 			for(let i=0;i*4<attributes.length;i++){
 				clipboard[i+1].pattern=baseNToPattern(parseInt(attributes[i*4]),parseInt(attributes[i*4+1]),LZ77ToBaseN(attributes[i*4+2]));
 				if(clipboard[i+1].pattern&&clipboard[i+1].pattern[0])clipboard[i+1].previewBitmap=patternToBitmap(clipboard[i+1].pattern);
-				if(attributes[i*4+3]!==""){
-					const shipInfo=attributes[i*4+3].split(",");
-					clipboard[i+1].shipInfo={dx:parseInt(shipInfo[2]),dy:parseInt(shipInfo[3]),shipOffset:{x:parseInt(shipInfo[4]),y:parseInt(shipInfo[5])},phases:Array(shipInfo.length-6),period:shipInfo.length-6};
-					for(let j=6;j<shipInfo.length;j++){
-						clipboard[i+1].shipInfo.phases[j-6]=baseNToPattern(parseInt(shipInfo[0]),parseInt(shipInfo[1]),LZ77ToBaseN(shipInfo[j]));
-					}
-				}
 				if(i>0){
 					document.getElementById("copyMenu").innerHTML+=`<button onclick="changeCopySlot(this);" onmouseenter="showPreview(this);">${i+2}<canvas class="patternPreview"></canvas></button>`;
-					clipboard.push({pattern:new Pattern(),shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},previewBitmap:null});
+					clipboard.push({pattern:new Pattern(),previewBitmap:null});
 				}
 			}
 			break;
@@ -504,15 +502,8 @@ function importSettings(){
 		case "marker":
 			attributes=value.split(".").map(str => (isNaN(str)||str==="")?str:parseInt(str));
 			for(let i=0;i<attributes.length;i+=7){
-				markers[attributes[i]]={activeState:1,top:attributes[i+1],right:attributes[i+2],bottom:attributes[i+3],left:attributes[i+4],shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:new Pattern()};
-				if(attributes[i+5]!=="")markers[attributes[i]].pattern=baseNToPattern(attributes[i+2]-attributes[i+4],attributes[i+3]-attributes[i+1],LZ77ToBaseN(attributes[i+5]));
-				if(attributes[i+6]&&attributes[i+6]!==""){
-					const shipInfo=attributes[i+6].split(",");
-					markers[attributes[i]].shipInfo={dx:parseInt(shipInfo[2]),dy:parseInt(shipInfo[3]),shipOffset:{x:parseInt(shipInfo[4]),y:parseInt(shipInfo[5])},phases:Array(shipInfo.length-6),period:shipInfo.length-6};
-					for(let j=6;j<shipInfo.length;j++){
-						markers[attributes[i]].shipInfo.phases[j-6]=baseNToPattern(parseInt(shipInfo[0]),parseInt(shipInfo[1]),LZ77ToBaseN(shipInfo[j]));
-					}
-				}
+				Marker.list[attributes[i]]={activeState:1,top:attributes[i+1],right:attributes[i+2],bottom:attributes[i+3],left:attributes[i+4],pattern:new Pattern()};
+				if(attributes[i+5]!=="")Marker.list[attributes[i]].pattern=baseNToPattern(attributes[i+2]-attributes[i+4],attributes[i+3]-attributes[i+1],LZ77ToBaseN(attributes[i+5]));
 			}
 			break;
 
@@ -989,9 +980,6 @@ function inputReset(){
 		}
 		GRID.finiteArray=resizedArray;
 	}
-
-	//reset the markers
-	selectedMarker=-1;
 }
 
 //gets key inputs
@@ -1085,14 +1073,7 @@ function setActionMenu(){
 		if(button.classList.contains("noSelect")&&selectArea)button.style.display="block";
 		if(button.classList.contains("noArea")&&selectArea&&pasteArea)button.style.display="block";
 		if(button.classList.contains("paste")&&pasteArea)button.style.display="block";
-		if(button.classList.contains("marker")){
-			for (let i = 0; i < markers.length; i++) {
-				if(markers[i].activeState>1){
-					button.style.display="block";
-					break;
-				}
-			}
-		}
+		if(button.classList.contains("marker")&&Marker.selectedIndex!==null) button.style.display="block";
 	}
 }
 
@@ -1257,7 +1238,7 @@ function changeCopySlot(target){
 	if(document.getElementById("copyMenu").lastElementChild===target){
 		duplicateLastChild(dropdown);
 		dropdown.lastElementChild.innerHTML=`${dropdown.children.length}<canvas class="patternPreview"></canvas>`;
-		clipboard.push({pattern:new Pattern(),shipInfo:{dx:null,dy:null,phases:[]},previewBitmap:null});
+		clipboard.push({pattern:new Pattern(),previewBitmap:null});
 	}
 	
 	//update the copy slot settings
@@ -1380,67 +1361,25 @@ function flipOrtho(direction="horizonal"){
 	render();
 }
 
+//Chnages the content of dropdowns so that only elements present on the grid
 function updateSelectors(){
 	let dropdownContents=document.getElementsByClassName("dropdown-content");
 	for(let i=0;i<dropdownContents.length;i++){
-		let elementIndex=0;
-		if(dropdownContents[i].className.includes("pattern-marker")
-			||dropdownContents[i].className.includes("areas"))elementIndex++;
-
-		if(dropdownContents[i].className.includes("areas")){
-			for(let j=0;j<markers.length;j++){
-				if(elementIndex>=dropdownContents[i].children.length){
-					if(markers[j].activeState>0&&markers[j].pattern.isEmpty){
-						dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`;
-						elementIndex++;
-					}
-				}else{
-					const markerIndex=parseInt(dropdownContents[i].children[elementIndex].innerHTML.slice(7))-1;
-					if(markers[j].activeState>0&&markers[j].pattern.isEmpty&&j!==markerIndex){
-						dropdownContents[i].children[elementIndex-1].insertAdjacentHTML("afterend",`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`);
-						elementIndex++;
-					}else if(markers[j].activeState>0&&markers[j].pattern.isEmpty&&j===markerIndex){
-						elementIndex++;
-					}else if((markers[j].activeState===0||markers[j].pattern.isEmpty)&&j===markerIndex){
-						dropdownContents[i].children[elementIndex].remove();
-					}
-				}
+		const checkForTag = (tag) => dropdownContents[i].className.includes(tag);
+		let newDropdownContent = "";
+		//keep unchanging portion
+		if(checkForTag("pattern-marker")){
+			if(dropdownContents[i].children[0])newDropdownContent += dropdownContents[i].children[0].outerHTML;
+			for(const [index, marker] of Marker.list.entries())if(marker){
+				newDropdownContent += `\n<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${index+1}</button>`;
 			}
 		}
-		if(dropdownContents[i].className.includes("pattern-marker")){
-			for(let j=0;j<markers.length;j++){
-				if(elementIndex>=dropdownContents[i].children.length){
-					if(markers[j].activeState>0&&!markers[j].pattern.isEmpty){
-						dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`;
-						elementIndex++;
-					}
-				}else{
-					const markerIndex=parseInt(dropdownContents[i].children[elementIndex].innerHTML.slice(7))-1;
-					if(markers[j].activeState>0&&!markers[j].pattern.isEmpty&&j!==markerIndex){
-						dropdownContents[i].children[elementIndex-1].insertAdjacentHTML("afterend",`<button onclick="replaceDropdownElement(this);updateSelectors();">Marker ${j+1}</button>`);
-						elementIndex++;
-					}else if(markers[j].activeState>0&&!markers[j].pattern.isEmpty&&j===markerIndex){
-						elementIndex++;
-					}else if((markers[j].activeState===0||!markers[j].pattern.isEmpty)&&j===markerIndex){
-						dropdownContents[i].children[elementIndex].remove();
-					}
-				}
-			}
-			/*dropdownContents[i].innerHTML+='<button onclick="if(pasteArea.pattern&&pasteArea) analyzeShip(pasteArea,this.parentElement.parentElement.parentElement.info,pasteArea);changeOption(this);">Active Paste</button>';
-			for(let j=0;j<markers.length;j++){
-				if(markers[j].activeState&&!markers[j].pattern.isEmpty){
-					dropdownContents[i].innerHTML+=`\n<button onclick="changeOption(this);">Marker ${j+1}</button>`;
-				}
-			}*/
-		}
-		if(dropdownContents[i].className.includes("copy-slot")){
+		if(checkForTag("copy-slot")){
 			for(let j=1;j<clipboard.length-1;j++){
-				if(elementIndex>=dropdownContents[i].children.length){
-					dropdownContents[i].innerHTML+=`<button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Copy Slot ${j}</button>`;
-					elementIndex++;
-				}
+				newDropdownContent +=`<button onclick="replaceDropdownElement(this);updateSearch(this.parentElement.parentElement);">Copy Slot ${j}</button>`;
 			}
 		}
+		if(newDropdownContent)dropdownContents[i].innerHTML = newDropdownContent;
 	}
 }
 
@@ -1464,11 +1403,7 @@ function fitView(){
 }
 
 function deleteMarker(){
-	for(let h = 0;h<markers.length;h++){
-		if(markers[h].activeState===2){
-			markers[h]={activeState:0,top:0,right:0,bottom:0,left:0,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0},pattern:new Pattern()};
-		}
-	}
+	if(Marker.selectedIndex!==null) Marker.list[Marker.selectedIndex]=undefined;
 	updateSelectors();
 	setActionMenu();
 	// TODO: replace render() here
@@ -1477,10 +1412,9 @@ function deleteMarker(){
 //set default view
 function setMark(){
 	if(pasteArea){
-		for(let h=0;h<markers.length;h++){
-			if(markers[h].activeState===0){
-				markers[h]=pasteArea;
-				markers[h].activeState=1;
+		for(let h=0;h<Marker.list.length+1;h++){
+			if(!Marker.list[h]){
+				Marker.list[h]=new Marker(pasteArea);
 				pasteArea=null;
 				setActionMenu();
 				break;
@@ -1488,12 +1422,10 @@ function setMark(){
 		}
 		updateSelectors();
 	}else if(selectArea){
-		for(let h=0;h<markers.length;h++){
-			if(markers[h]===null||markers[h].activeState===0){
+		for(let h=0;h<Marker.list.length+1;h++){
+			if(!Marker.list[h]){
 				setActionMenu();
-				markers[h]=new Area(...selectArea.bounds);;//{activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left,shipInfo:{dx:null,dy:null,shipOffset:null,phases:[],period:0}, pattern:new Pattern()};
-				markers[h].activeState = 1;
-				console.log(markers);
+				Marker.list[h]=new Marker(selectArea);;//{activeState:1, top:selectArea.top, right:selectArea.right, bottom:selectArea.bottom, left:selectArea.left, pattern:new Pattern()};
 				selectArea=null;
 				break;
 			}
@@ -1661,57 +1593,28 @@ function move(x, y){
 
 function select(x, y){
 	// select an edge of the selectArea if the cursor is within the area
-	// the marigin for selecting is increased on the left and right if
-	// the area is narrower than 4/view.z, and likewise for the
-	// top and bottom.
 	if(selectArea&&selectArea.isWithinBounds(x,y)){
 		pointers[0].objectBeingDragged=selectArea.attemptDrag(x,y);
-		//deselect all markers
-		for(let h=0;h<markers.length;h++){
-			if(markers[h].activeState===2)markers[h].activeState=1;
-		}
 	}else{
-		//marker[#].activestate:
-		//0 = inactive, not visible,
-		//1 = active, visible
-		//2 = selected, visible with strong outline
-		//selectedmarker:
-		//-2 = no marker is selected
-		//-1 = a marker is selected
-		//n>=0 = marker[n] is selected
-		if(selectedMarker===-1){
-			//if no 
-			for(let h=0;h<markers.length;h++){
-				if(markers[h].activeState===2){
-					//if the loop reaches a selected marker, deselect it
-					//and select the most recent indexed marker within
-					//the click area
-					markers[h].activeState=1;
-					if(selectedMarker>=0)markers[selectedMarker].activeState=2;
-					if(selectedMarker!==-1){
-						selectedMarker=-2;
-						break;
-					}
-				}else if(markers[h].activeState===1&&markers[h].isWithinBounds(x,y)){
-					// if the current marker is active, unselected, and
-					// being clicked, then mark it for being selected
-					// later
-					selectedMarker=h;
-				}
+		//selects the previous marker fram the sparse markkers array
+		//selects the last marker if the first is currently selected
+		let previousMarker = null;
+		for( let [index, marker] of Marker.list.entries())if(marker){
+			if(marker.isWithinBounds(x,y)){
+				if(previousMarker!==null&&marker===Marker.list[Marker.selectedIndex]) break;
+				previousMarker=index;
 			}
 		}
-		// if all markers have been looped through without being selected
-		// select the last indexed marker
-		if(selectedMarker!==-1){
-			if(selectedMarker>=0)markers[selectedMarker].activeState=2;
-			setActionMenu();
-		}else if(selectArea===null){
+		if(previousMarker!==null)Marker.selectedIndex=previousMarker;
+
+		//if not clicking on a marker or selectArea, create a selectArea
+		if(previousMarker===null&&selectArea===null){
 			// make a selectArea if there are no selectable markers
 			// this happens when the cursor clicks in an empty area.
 			selectArea=new DraggableArea(y, x+1, y+1, x);
 			pointers[0].objectBeingDragged=selectArea.attemptDrag(x, y);
-			setActionMenu();
 		}
+		setActionMenu();
 	}
 	render();
 }
@@ -1819,12 +1722,12 @@ function render(){
 		}
 	}
 	
-	for(let i=0;i<markers.length;i++)if(markers[i].pattern&&markers[i].activeState!==0){
-		for(let h=0;h<markers[i].pattern.width;h++){
-			for(let j=0;j<markers[i].pattern.height;j++){
-				if(markers[i].pattern[h][j]>0){
-					ctx.fillStyle=getColor(markers[i].pattern[h][j]);
-					ctx.fillRect(canvasWidth*0.5-(canvasWidth*0.5+view.x*cellWidth)*view.z+(markers[i].left+h)*scaledCellWidth,canvasHeight*0.5-(canvasHeight*0.5+view.y*cellWidth)*view.z+(markers[i].top+j)*scaledCellWidth,scaledCellWidth,scaledCellWidth);
+	for(let marker of Marker.list)if(marker){
+		for(let h=0;h<marker.pattern.width;h++){
+			for(let j=0;j<marker.pattern.height;j++){
+				if(marker.pattern[h][j]>0){
+					ctx.fillStyle=getColor(marker.pattern[h][j]);
+					ctx.fillRect(canvasWidth*0.5-(canvasWidth*0.5+view.x*cellWidth)*view.z+(marker.left+h)*scaledCellWidth,canvasHeight*0.5-(canvasHeight*0.5+view.y*cellWidth)*view.z+(marker.top+j)*scaledCellWidth,scaledCellWidth,scaledCellWidth);
 				}
 			}
 		}
@@ -1855,32 +1758,26 @@ function render(){
 		}
 	}
 	//draws the active marker after the inactive markers
-	for(let h=1;h<3;h++){
-		for(let i=0;i<markers.length;i++){
-			if(markers[i].activeState!==0){
-				if(markers[i].activeState===1){
-					if(darkMode){
-						ctx.strokeStyle="#888888";
-					}else{
-						ctx.strokeStyle="#999999";
-					}
-				}else if(markers[i].activeState===2){
-					if(darkMode){
-						ctx.strokeStyle="#BBBBBB";
-						ctx.fillStyle="#BBBBBB";
-					}else{
-						ctx.strokeStyle="#999999";
-						ctx.fillStyle="#999999";
-					}
-					ctx.lineWidth=1;
-					ctx.fillText((i+1),canvasWidth*0.5+1*view.z-((view.x-markers[i].left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-6*view.z-((view.y-markers[i].top)*cellWidth+canvasHeight*0.5)*view.z,(markers[i].right-markers[i].left)*scaledCellWidth-1);
+	for(let [index, marker] of Marker.list.entries())if(marker){
+			if(marker!==Marker.list[Marker.selectedIndex]){
+				if(darkMode){
+					ctx.strokeStyle="#888888";
+				}else{
+					ctx.strokeStyle="#999999";
 				}
-				ctx.lineWidth=5*view.z;
-				if(markers[i].activeState===h){
-					ctx.strokeRect(canvasWidth*0.5-((view.x-markers[i].left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-markers[i].top)*cellWidth+canvasHeight*0.5)*view.z,(markers[i].right-markers[i].left)*scaledCellWidth-1,(markers[i].bottom-markers[i].top)*scaledCellWidth-1);
+			}else{
+				if(darkMode){
+					ctx.strokeStyle="#BBBBBB";
+					ctx.fillStyle="#BBBBBB";
+				}else{
+					ctx.strokeStyle="#999999";
+					ctx.fillStyle="#999999";
 				}
+				ctx.lineWidth=1;
+				ctx.fillText("Marker "+(index+1),canvasWidth*0.5+1*view.z-((view.x-marker.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-6*view.z-((view.y-marker.top)*cellWidth+canvasHeight*0.5)*view.z,(marker.right-marker.left)*scaledCellWidth-1);
 			}
-		}
+			ctx.lineWidth=5*view.z;
+		ctx.strokeRect(canvasWidth*0.5-((view.x-marker.left)*cellWidth+canvasWidth*0.5)*view.z,canvasHeight*0.5-((view.y-marker.top)*cellWidth+canvasHeight*0.5)*view.z,(marker.right-marker.left)*scaledCellWidth-1,(marker.bottom-marker.top)*scaledCellWidth-1);
 	}
 	//draw a rectangle around the right-selectArea.
 	if(selectArea){
