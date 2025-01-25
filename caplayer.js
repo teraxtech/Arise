@@ -521,7 +521,6 @@ function importSettings(){
 			for(let i = 0; i < attributes.length; i++){
 				const fields=attributes[i].split(",");
 				let currentFieldElement=document.getElementById("searchOptions").lastElementChild;
-				let shipInfo=null;
 				//if the a ship is stored in the "Generate Salvo" portion if the URL
 				//use it to initialize the .info property of the "Expression" element
 				//then splice it out of the URI substring
@@ -571,7 +570,7 @@ function findElementContaining(element,str){
 	}
 }
 
-async function exportSetting(){
+async function exportSimulation(){
 	let text=`${window.location.protocol}//${window.location.host}
 		${window.location.pathname}?v=0.5.0`;
 
@@ -579,7 +578,8 @@ async function exportSetting(){
 	// if(resetEvent!==null)setEvent(resetEvent);
 	text+="&draw="+drawMode;
 
-	if(genCount!==0)text+="&gen="+genCount;
+	const generation=getNum(document.getElementById("gens").innerHTML);
+	if(generation!==0)text+="&gen="+generation;
 
 	if(GRID.backgroundState!==0)text+="&background="+GRID.backgroundState;
 
@@ -588,31 +588,23 @@ async function exportSetting(){
 
 	if(activeClipboard!==1)text+="&slot="+activeClipboard;
 
-	let segments;
-	if(clipboard.length>3||clipboard[1]){
-		segments = new Array(clipboard.length).fill("");
-		const promises = clipboard.map((value, index) => worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"clipboard"+(index+1)}).then((response) => {
-			const i=index+1;
-			if(i>1)segments[index]+=".";
-		 	console.log(response, i, index);
-			if(clipboard[i]&&clipboard[i].pattern.length>0){
-				segments[index]+=`${clipboard[i].pattern.length}.${clipboard[i].pattern[0].length}.${response}.`;
-				//TODO: rewrite to use postMessage
-				// if(clipboard[i].shipInfo.dx!==null){
-				// 	text+=`${clipboard[i].shipInfo.phases[0].length},${clipboard[i].shipInfo.phases[0][0].length},${clipboard[i].shipInfo.dx},${clipboard[i].shipInfo.dy},${clipboard[i].shipInfo.shipOffset.x},${clipboard[i].shipInfo.shipOffset.y}`;
-				// 	for(let j=0;j<clipboard[i].shipInfo.phases.length;j++){
-				// 		text+=","+baseNToLZ77(patternToBaseN(clipboard[i].shipInfo.phases[j]));
-				// 	}
-				// }
-			}else{
-				segments[index]+="0.0..";
-			}
-		}))
-		console.log(promises);
-		Promise.all(promises).then((response) => {
-			console.log(segments);
-			text+="&slots="+segments.join("");
-		});
+	let workerTasks=[];
+
+	let clipboardParameters;
+	if(clipboard.length>3||!clipboard[1].pattern.isEmpty){
+		clipboardParameters = new Array(clipboard.length).fill("");
+		workerTasks.push(Promise.all(clipboard.map((value, index) => {
+			return worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"clipboard"+(index+1)}).then((response) => {
+				if(!(value.pattern.isEmpty)){
+					clipboardParameters[index]+=`${value.pattern.width}.${value.pattern.height}.${response}`;
+				}else{
+					clipboardParameters[index]+="0.0.";
+				}
+			});
+		})).then(() => {
+			console.log(clipboardParameters);
+			return "&slots="+clipboardParameters.join(".");
+		}));
 	}
 
 	if(selectArea)text+=`&selA=${selectArea.top}.${selectArea.right}.${selectArea.bottom}.${selectArea.left}`;
@@ -625,40 +617,32 @@ async function exportSetting(){
 		text+="&rule="+encodeURIComponent(ruleMetadata.string);
 	}
 	
-	let area, patternCode;
-	if(GRID.type===0){
-		console.log("type0");
-		Promise.all([
-			worker.postMessage({type: "getBounds"}),
-			worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"Grid"})
-		]).then((responses) => {
-			text+=`&pat=${responses[0].join(".")}.${responses[1]}`;
-			console.log("type0write");
-		})
-	}else{
-		area=[GRID.finiteArea.top,GRID.finiteArea.right,GRID.finiteArea.bottom,GRID.finiteArea.left];
-		patternCode=baseNToLZ77(patternToBaseN(GRID.finiteArray));
-		text+=`&pat=${area.join(".")}.${GRID.type}.${patternCode}`;
-	}
+	workerTasks.push(Promise.all([
+		worker.postMessage({type: "getBounds"}),
+		worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"Grid"})
+	]).then((responses) => {
+		text+=`&pat=${GRID.type}.${responses[0].join(".")}.${responses[1]}`;
+		console.log("type0write");
+	}));
 
 	if(document.getElementById("density").value!=="50"){
 		text+="&ratio="+document.getElementById("density").value;
 	}
 
-	let markerString="";
-	for(let i=0;i<markers.length;i++){
-		if(markers[i].activeState){
-			if(markerString!=="")markerString+=".";
-			markerString+=`${i}.${markers[i].top}.${markers[i].right}.${markers[i].bottom}.${markers[i].left}.${baseNToLZ77(patternToBaseN(markers[i].pattern))}.`;
-		}
-		if(markers[i].shipInfo.dx!==null){
-			markerString+=`${markers[i].shipInfo.phases[0].length},${markers[i].shipInfo.phases[0][0].length},${markers[i].shipInfo.dx},${markers[i].shipInfo.dy},${markers[i].shipInfo.shipOffset.x},${markers[i].shipInfo.shipOffset.y}`;
-			for(let j=0;j<markers[i].shipInfo.phases.length;j++){
-				markerString+=","+baseNToLZ77(patternToBaseN(markers[i].shipInfo.phases[j]));
-			}
+	const markerPromises = [];
+	let markerParameters = [];
+	for (const [index, marker] of Marker.list.entries())if(marker){
+		if(marker.pattern.isEmpty){
+			markerParameters[index]=`${marker.bounds.join(".")}.`;
+		}else{
+			markerPromises.push(worker.postMessage({type:"export", outputFormat:"LZ77", inputPattern:"Direct", pattern:marker.pattern}).then((response) => {
+				markerParameters[index]=`${marker.bounds.join(".")}.${response}`;
+			}));
 		}
 	}
-	if(markerString!=="")text+="&marker="+markerString;
+	workerTasks.push(Promise.all(markerPromises).then(() => {
+		return "&marker="+markerParameters.join(".");
+	}));
 
 	if(document.getElementById("rleMargin").value!=="16")text+="&rleMargin="+document.getElementById("rleMargin").value;
 
@@ -682,12 +666,13 @@ async function exportSetting(){
 			}
 		}
 	}
+	
+	Promise.all(workerTasks).then((responses) => {
+		text+=responses.join("");
 
-	document.getElementById("settingsExport").innerHTML=text;
-	document.getElementById("settingsExport").href=text;
-
-  //TODO: rewrite
-	// if(resetEvent!==null)setEvent(currentEvent);
+		document.getElementById("settingsExport").innerHTML=text;
+		document.getElementById("settingsExport").href=text;
+	});
 }
 
 function drawCell(x, y){

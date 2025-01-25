@@ -453,17 +453,14 @@ function readPattern(area){
 		GRID.head=widenTree(area,GRID.head);
 		return readPatternFromTree(area, GRID);
 	}else{
-		const finiteGrid=(arguments[4]!==undefined)?arguments[4].finiteArray:GRID.finiteArray;
-		const finiteGridMargin=(arguments[4]!==undefined)?arguments[4].finiteArea.margin:GRID.finiteArea.margin;
-		const finiteGridLeft=(arguments[4]!==undefined)?arguments[4].finiteArea.left:GRID.finiteArea.left;
-		const finiteGridTop=(arguments[4]!==undefined)?arguments[4].finiteArea.top:GRID.finiteArea.top;
+		const areaX=GRID.finiteArea.left-GRID.finiteArea.margin, areaY=GRID.finiteArea.top-GRID.finiteArea.margin;
 		for(let i=0;i<pattern.length;i++){
 			pattern[i]=new Array(area.bottom-area.top);
 			for(let j=0;j<pattern[i].length;j++){
-				if(j+area.top>=finiteGridTop-finiteGridMargin&&i+area.right<finiteGridLeft+finiteGrid.length+finiteGridMargin&&j+area.top<finiteGridTop+finiteGrid[0].length+finiteGridMargin&&i+area.left>=finiteGridLeft-finiteGridMargin){
-					pattern[i][j]=finiteGrid[i-finiteGridLeft+finiteGridMargin+area.left][j-finiteGridTop+finiteGridMargin+area.top];
+				if(j+area.top>=areaY&&i+area.left<GRID.finiteArea.right+GRID.finiteArea.margin&&j+area.top<GRID.finiteArea.bottom+GRID.finiteArea.margin&&i+area.left>=areaX){
+					pattern[i][j]=GRID.finiteArray[i-areaX+area.left][j-areaY+area.top];
 				}else{
-					pattern[i][j]=arguments[4]?0:GRID.backgroundState;
+					pattern[i][j]=GRID.backgroundState;
 				}
 			}
 		}
@@ -2290,7 +2287,11 @@ onmessage = (e) => {
         case "Grid":
 				pattern = readPattern(new Area(...calculateBounds(GRID)));
         break;
-				default:
+				case "Direct":
+				console.log(e.data.pattern);
+				pattern = e.data.pattern;
+				break;
+				default: // "clipboard#"
 				if(e.data.inputPattern.startsWith("clipboard")){
 					pattern=clipboard[parseInt(e.data.inputPattern.substr(9))-1].pattern;
 				}else{
